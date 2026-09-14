@@ -339,7 +339,7 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
           </div>
         </div>
 
-        {/* Row 3: Thanh công cụ & đồng bộ Drive siêu gọn */}
+        {/* Row 3: Thống kê số lượng mục */}
         <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-600">
           <div className="flex items-center space-x-1.5 text-[9px]">
             <span><strong className="text-emerald-600">{db.assets.length}</strong> TS</span>
@@ -348,16 +348,9 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
             <span className="text-slate-300">•</span>
             <span><strong className="text-blue-600">{db.goals.length}</strong> MT</span>
           </div>
-
-          <button
-            onClick={onSyncDrive}
-            disabled={isSyncing}
-            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-[9.5px] px-2 py-0.5 rounded-md transition shadow-2xs flex items-center space-x-1 cursor-pointer disabled:opacity-90 shrink-0"
-            title="Lưu dữ liệu"
-          >
-            <RotateCw className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Lưu...' : 'Lưu Drive'}</span>
-          </button>
+          <div className="text-[9px] text-slate-500 font-medium">
+            Lần lưu: <span className="font-semibold text-slate-700">{db.lastUpdate || 'Mới cập nhật'}</span>
+          </div>
         </div>
       </div>
 
@@ -424,6 +417,7 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
           </div>
         </div>
 
+        {/* Quản lý danh mục & lần lưu */}
         <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5 text-xs text-slate-600">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
             <span>Đang quản lý: <strong className="text-emerald-600">{db.assets.length} Danh mục</strong></span>
@@ -431,19 +425,10 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
             <span><strong className="text-rose-600">{db.debts.length} Nợ</strong></span>
             <span className="text-slate-300">•</span>
             <span><strong className="text-blue-600">{db.goals.length} Mục tiêu</strong></span>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-500 whitespace-nowrap">Lần lưu: <strong className="text-slate-800">{db.lastUpdate || 'Chưa ghi nhận'}</strong></span>
           </div>
-
-          <button
-            onClick={onSyncDrive}
-            disabled={isSyncing}
-            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs flex items-center space-x-2 cursor-pointer disabled:opacity-90 shrink-0"
-            title="Lưu ngay tức thì vào máy và tự động đồng bộ ngầm lên Google Drive"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Đã Lưu Máy • Đang Đẩy Drive...' : 'Đồng Bộ & Lưu Drive'}</span>
-          </button>
+          <div className="text-slate-500 text-xs">
+            Lần lưu gần nhất: <strong className="text-slate-800">{db.lastUpdate || 'Mới cập nhật'}</strong>
+          </div>
         </div>
       </div>
 

@@ -4,16 +4,14 @@ import {
   Upload,
   Eye,
   EyeOff,
-  Layers,
-  Scale,
-  Target,
-  CheckCircle2,
-  CloudOff,
   RotateCw,
   LogOut,
   Clock,
   ScanFace,
-  CloudUpload,
+  Menu,
+  X,
+  ShieldCheck,
+  User,
 } from 'lucide-react';
 import { PyramidLogo } from './PyramidLogo';
 
@@ -44,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSyncDrive,
   isSyncing = false,
 }) => {
-  const [showUserMenu, setShowUserMenu] = useState<boolean>(false);
+  const [showMenu, setShowMenu] = useState<boolean>(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Real-time Digital Clock State
@@ -57,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Format real-time clock string: HH:mm:ss • DD/MM/YYYY
+  // Format real-time clock string: HH:mm:ss
   const timeString = currentTime.toLocaleTimeString('vi-VN', {
     hour: '2-digit',
     minute: '2-digit',
@@ -65,9 +63,11 @@ export const Header: React.FC<HeaderProps> = ({
     hour12: false,
   });
 
+  // Format full date with 4-digit year: DD/MM/YYYY
   const dateString = currentTime.toLocaleDateString('vi-VN', {
     day: '2-digit',
     month: '2-digit',
+    year: 'numeric',
   });
 
   // Face ID state in localStorage
@@ -89,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowUserMenu(false);
+        setShowMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -101,36 +101,36 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Top Fixed Header Bar */}
       <div className="h-12 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-3">
         {/* Left: Brand Logo & Title */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0 min-w-0">
-          <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-white p-0.5 sm:p-1 shadow-xs border border-slate-200/90 flex items-center justify-center shrink-0">
+        <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0 min-w-0">
+          <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-white p-0.5 sm:p-1 shadow-xs border border-slate-200/90 flex items-center justify-center shrink-0">
             <PyramidLogo className="w-full h-full" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-1 sm:gap-1.5">
-              <span className="font-black text-xs sm:text-base text-slate-900 tracking-tight block leading-tight truncate">
+            <div className="flex items-center gap-1">
+              <span className="font-black text-xs sm:text-sm md:text-base text-slate-900 tracking-tight block leading-tight truncate">
                 Tháp Tài Sản
               </span>
-              <span className="text-[7.5px] sm:text-[10px] bg-emerald-100 text-emerald-800 px-1 sm:px-1.5 py-0.2 rounded font-bold shrink-0">
+              <span className="text-[7.5px] sm:text-[9.5px] bg-emerald-100 text-emerald-800 px-1 sm:px-1.5 py-0.2 rounded font-bold shrink-0">
                 v5.2
               </span>
             </div>
-            <span className="hidden sm:block text-[10px] sm:text-[11px] text-slate-500 font-medium truncate leading-none mt-0.5">
+            <span className="hidden md:block text-[10px] text-slate-500 font-medium truncate leading-none mt-0.5">
               Hoạch Định & Quản Trị
             </span>
           </div>
         </div>
 
-        {/* Center: REAL-TIME DIGITAL CLOCK */}
-        <div className="flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-3 py-1 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-200/80 rounded-xl transition shadow-2xs shrink-0">
-          <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse shrink-0" />
-          <div className="flex items-center space-x-1 font-mono text-[11px] sm:text-xs font-bold text-slate-800">
+        {/* Center: REAL-TIME DIGITAL CLOCK WITH FULL YEAR (HH:mm:ss • DD/MM/YYYY) */}
+        <div className="flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-200/80 rounded-lg sm:rounded-xl transition shadow-2xs shrink-0 select-none">
+          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600 animate-pulse shrink-0" />
+          <div className="flex items-center space-x-1 font-mono text-[10px] sm:text-xs font-bold text-slate-800">
             <span className="tracking-tight">{timeString}</span>
-            <span className="text-slate-300 hidden sm:inline">•</span>
-            <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium hidden sm:inline">{dateString}</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-[9.5px] sm:text-[11px] text-slate-600 font-medium">{dateString}</span>
           </div>
         </div>
 
-        {/* Right Action Cluster: Drive Save Button, Privacy Eye, User, Logout */}
+        {/* Right Action Cluster: Drive Save Button, Privacy Eye, 3-Line Menu (Hamburger) */}
         <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
           {/* PROMINENT DRIVE SAVE & SYNC BUTTON (Fixed at top, accessible from any tab) */}
           <button
@@ -157,27 +157,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="xs:hidden">Lưu</span>
           </button>
 
-          {/* Backup & Restore (Desktop) */}
-          <div className="hidden lg:flex items-center space-x-1">
-            <button
-              onClick={onExportJSON}
-              className="flex items-center space-x-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1.5 rounded-xl transition cursor-pointer"
-              title="Tải file JSON dự phòng về máy"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Sao lưu</span>
-            </button>
-
-            <label
-              className="flex items-center space-x-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1.5 rounded-xl cursor-pointer transition"
-              title="Khôi phục dữ liệu từ file JSON"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Phục hồi</span>
-              <input type="file" accept=".json" onChange={onImportJSON} className="hidden" />
-            </label>
-          </div>
-
           {/* Privacy Toggle (Eye) */}
           <button
             onClick={onTogglePrivacy}
@@ -191,61 +170,79 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* User Profile Avatar with Dropdown Menu */}
+          {/* 3-Line Hamburger Menu Button (Thay thế ô cạnh nút thoát bằng 3 gạch, chứa toàn bộ thao tác & nút Thoát) */}
           <div className="relative shrink-0" ref={menuRef}>
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center space-x-1 bg-slate-100 hover:bg-slate-200/80 p-0.5 sm:px-2 sm:py-1 rounded-lg sm:rounded-xl text-xs font-bold text-slate-700 transition cursor-pointer shrink-0"
-              title={`Tài khoản: ${userDisplay || 'Người dùng'}`}
+              onClick={() => setShowMenu(!showMenu)}
+              className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center transition cursor-pointer shrink-0 border ${
+                showMenu
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80'
+              }`}
+              title="Menu thao tác & Thoát"
             >
-              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center font-black text-[10px] shadow-xs shrink-0">
-                {(userDisplay || 'U').charAt(0).toUpperCase()}
-              </div>
-              <span className="hidden md:inline truncate max-w-[80px]">{userDisplay}</span>
+              {showMenu ? (
+                <X className="w-4 h-4" />
+              ) : (
+                <Menu className="w-4 h-4" />
+              )}
             </button>
 
-            {/* User Dropdown Menu */}
-            {showUserMenu && (
-              <div className="absolute right-0 top-9 sm:top-10 z-50 w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 text-xs text-slate-700 space-y-1">
-                <div className="px-3.5 py-2 border-b border-slate-100">
-                  <div className="text-[10px] text-slate-400 font-medium">Đang đăng nhập:</div>
-                  <div className="font-bold text-slate-900 truncate">{userDisplay || 'Người dùng'}</div>
+            {/* Hamburger Dropdown Action Menu */}
+            {showMenu && (
+              <div className="absolute right-0 top-9 sm:top-10 z-50 w-60 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 text-xs text-slate-700 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                {/* User Account Info Header */}
+                <div className="px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/50">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center font-black text-xs shadow-xs shrink-0">
+                      {(userDisplay || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] text-slate-400 font-medium">Tài khoản cá nhân:</div>
+                      <div className="font-bold text-slate-900 truncate text-xs">{userDisplay || 'Người dùng'}</div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Face ID Settings Toggle */}
-                <div className="px-3.5 py-2 hover:bg-slate-50 flex items-center justify-between border-b border-slate-100 cursor-pointer" onClick={handleToggleFaceId}>
+                {/* Face ID Quick Settings Toggle */}
+                <div
+                  className="px-3.5 py-2 hover:bg-slate-50 flex items-center justify-between border-b border-slate-100 cursor-pointer select-none"
+                  onClick={handleToggleFaceId}
+                >
                   <div className="flex items-center space-x-2">
                     <ScanFace className={`w-4 h-4 ${faceIdActive ? 'text-blue-600' : 'text-slate-400'}`} />
                     <span className="font-semibold text-slate-700">Mở khóa Face ID</span>
                   </div>
                   <span
                     className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                      faceIdActive ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'
+                      faceIdActive ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-slate-200 text-slate-600'
                     }`}
                   >
-                    {faceIdActive ? 'Bật' : 'Tắt'}
+                    {faceIdActive ? 'Đang bật' : 'Đang tắt'}
                   </span>
                 </div>
 
+                {/* Backup & Restore Action Buttons */}
                 <div className="py-1">
                   <button
                     onClick={() => {
-                      setShowUserMenu(false);
+                      setShowMenu(false);
                       onExportJSON();
                     }}
                     className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center space-x-2 text-slate-700 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Sao lưu file JSON</span>
+                    <span>Sao lưu file JSON về máy</span>
                   </button>
+
                   <label className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center space-x-2 text-slate-700 cursor-pointer">
                     <Upload className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Phục hồi file JSON</span>
+                    <span>Phục hồi dữ liệu từ file JSON</span>
                     <input
                       type="file"
                       accept=".json"
                       onChange={(e) => {
-                        setShowUserMenu(false);
+                        setShowMenu(false);
                         onImportJSON(e);
                       }}
                       className="hidden"
@@ -253,31 +250,22 @@ export const Header: React.FC<HeaderProps> = ({
                   </label>
                 </div>
 
+                {/* Log Out Button (Đưa phần Thoát vào bên trong Menu 3 gạch) */}
                 <div className="pt-1 border-t border-slate-100">
                   <button
                     onClick={() => {
-                      setShowUserMenu(false);
+                      setShowMenu(false);
                       onLogout();
                     }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-rose-50 flex items-center space-x-2 text-rose-600 font-bold cursor-pointer"
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-rose-50 flex items-center space-x-2 text-rose-600 font-bold cursor-pointer transition rounded-b-xl"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Đăng xuất / Đổi tài khoản</span>
+                    <LogOut className="w-4 h-4" />
+                    <span>Đăng xuất / Thoát tài khoản</span>
                   </button>
                 </div>
               </div>
             )}
           </div>
-
-          {/* Direct Logout Button */}
-          <button
-            onClick={onLogout}
-            className="flex items-center space-x-1 text-[10px] sm:text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-1.5 py-1 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-xl cursor-pointer transition active:scale-95 shrink-0"
-            title="Đăng xuất khỏi tài khoản"
-          >
-            <LogOut className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 shrink-0" />
-            <span>Thoát</span>
-          </button>
         </div>
       </div>
     </header>
