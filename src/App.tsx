@@ -8,6 +8,7 @@ import {
 import { normalizeAccountKey, hashString } from './utils/format';
 import { Header } from './components/Header';
 import { AuthModal } from './components/AuthModal';
+import { FixedBottomNav } from './components/FixedBottomNav';
 import { TabPyramid } from './components/TabPyramid';
 import { TabDebts } from './components/TabDebts';
 import { TabGoals } from './components/TabGoals';
@@ -21,7 +22,7 @@ export default function App() {
 
   const [currentAccountKey, setCurrentAccountKey] = useState<string>('');
   const [userDisplay, setUserDisplay] = useState<string>('');
-  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
 
@@ -46,55 +47,18 @@ export default function App() {
     cloudRootRef.current = cloudRoot;
   }, [cloudRoot]);
 
-  // On App Mount: FAST PATH local first (0ms), then background cloud fetch
+  // On App Mount: Always show login screen / Face ID lock so user explicitly clicks to unlock
   useEffect(() => {
     const initApp = async () => {
-      const savedAccount = localStorage.getItem('thaptaisan_saved_account');
-      const savedPass = localStorage.getItem('thaptaisan_saved_pass');
-      const activeAccount = localStorage.getItem('thaptaisan_active_account');
-      const targetAccount = savedAccount || activeAccount;
-
-      // 1. FAST PATH: Check local cache first - Opens in 0ms!
-      if (targetAccount) {
-        const accKey = normalizeAccountKey(targetAccount);
-        const localSaved = localStorage.getItem(`thaptaisan_local_${accKey}`);
-        if (localSaved) {
-          try {
-            const parsed = JSON.parse(localSaved);
-            setupUserSession(targetAccount, accKey, parsed);
-          } catch (e) {
-            console.error('Error parsing local cache:', e);
-          }
-        }
-      }
-
-      // 2. BACKGROUND FETCH: Verify with Google Drive in background without blocking UI
+      // Fetch cloud root in background to be ready for instant verification
       loadCloudData().then((cloudData) => {
         if (cloudData) {
           setCloudRoot(cloudData);
-
-          if (targetAccount && savedPass) {
-            const accKey = normalizeAccountKey(targetAccount);
-            const storedHash = cloudData.passwords?.[accKey];
-            if (storedHash) {
-              hashString(savedPass).then((hashed) => {
-                if (storedHash === hashed || storedHash === savedPass) {
-                  // Valid cloud user verified
-                  const cloudDb = cloudData.users?.[accKey];
-                  if (cloudDb && !localStorage.getItem(`thaptaisan_local_${accKey}`)) {
-                    setupUserSession(targetAccount, accKey, cloudDb);
-                  }
-                }
-              });
-            }
-          }
         }
       });
 
-      // If no active session found at all, show Auth modal
-      if (!targetAccount) {
-        setShowAuthModal(true);
-      }
+      // Always require explicit Face ID tap or login click upon reopening the app
+      setShowAuthModal(true);
     };
 
     initApp();
@@ -123,6 +87,36 @@ export default function App() {
         history: userData.history || [],
       });
     }
+  };
+
+  // Face ID Biometric Unlock Handler
+  const handleFaceIdUnlock = async (): Promise<boolean> => {
+    const savedAccount =
+      localStorage.getItem('thaptaisan_faceid_account') ||
+      localStorage.getItem('thaptaisan_saved_account') ||
+      localStorage.getItem('thaptaisan_active_account') ||
+      '';
+
+    if (!savedAccount) return false;
+
+    const accKey = normalizeAccountKey(savedAccount);
+    const localSaved = localStorage.getItem(`thaptaisan_local_${accKey}`);
+    let userData: DatabaseState = DEFAULT_DATABASE_STATE;
+
+    if (localSaved) {
+      try {
+        userData = JSON.parse(localSaved);
+      } catch (e) {
+        console.error('Error parsing local cache for Face ID:', e);
+      }
+    } else if (cloudRoot.users?.[accKey]) {
+      userData = cloudRoot.users[accKey];
+    }
+
+    setupUserSession(savedAccount, accKey, userData);
+    setCurrentTab('pyramid');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return true;
   };
 
   const handleLogin = async (rawAccount: string, pass: string, remember: boolean): Promise<boolean> => {
@@ -159,6 +153,8 @@ export default function App() {
     if (remember) {
       localStorage.setItem('thaptaisan_saved_account', rawAccount);
       localStorage.setItem('thaptaisan_saved_pass', pass);
+      localStorage.setItem('thaptaisan_faceid_enabled', '1');
+      localStorage.setItem('thaptaisan_faceid_account', rawAccount);
     } else {
       localStorage.setItem('thaptaisan_saved_account', rawAccount);
       localStorage.removeItem('thaptaisan_saved_pass');
@@ -167,13 +163,13 @@ export default function App() {
     localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(userData));
 
     setupUserSession(rawAccount, accKey, userData);
+    setCurrentTab('pyramid');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     return true;
   };
 
   const handleLogout = () => {
-    if (confirm('Bạn có muốn đăng xuất để chuyển sang tài khoản khác?')) {
-      localStorage.removeItem('thaptaisan_active_account');
-      localStorage.removeItem('thaptaisan_saved_pass');
+    if (confirm('Bạn có muốn đăng xuất khỏi tài khoản hiện tại?')) {
       setShowAuthModal(true);
       setUserDisplay('');
     }
@@ -249,18 +245,28 @@ export default function App() {
     }
   };
 
-  // State mutators - ALL INSTANT LOCAL FIRST
-  const handleUpdateAsset = (updatedAsset: Asset) => {
+  // Manual Explicit Google Drive Sync Action (Clickable from Header in any tab)
+  const handleSyncDrive = async () => {
+    setIsSyncing(true);
+    triggerBackgroundSync(db, true);
+    setTimeout(() => {
+      setIsSyncing(false);
+    }, 1200);
+  };
+
+  // State mutation actions (instant state update + silent async sync)
+  const handleUpdateAsset = (asset: Asset) => {
     setDb((prev) => {
-      const idx = prev.assets.findIndex((a) => a.id === updatedAsset.id);
-      let newAssets = [...prev.assets];
-      if (idx !== -1) {
-        newAssets[idx] = updatedAsset;
+      const index = prev.assets.findIndex((a) => a.id === asset.id);
+      let newAssets: Asset[];
+      if (index >= 0) {
+        newAssets = [...prev.assets];
+        newAssets[index] = asset;
       } else {
-        newAssets.push(updatedAsset);
+        newAssets = [...prev.assets, asset];
       }
-      const newDb = { ...prev, assets: newAssets };
-      triggerBackgroundSync(newDb, false);
+      const newDb = { ...prev, assets: newAssets, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
       return newDb;
     });
   };
@@ -268,23 +274,24 @@ export default function App() {
   const handleRemoveAsset = (id: number) => {
     setDb((prev) => {
       const newAssets = prev.assets.filter((a) => a.id !== id);
-      const newDb = { ...prev, assets: newAssets };
-      triggerBackgroundSync(newDb, false);
+      const newDb = { ...prev, assets: newAssets, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
       return newDb;
     });
   };
 
-  const handleUpdateDebt = (updatedDebt: Debt) => {
+  const handleUpdateDebt = (debt: Debt) => {
     setDb((prev) => {
-      const idx = prev.debts.findIndex((d) => d.id === updatedDebt.id);
-      let newDebts = [...prev.debts];
-      if (idx !== -1) {
-        newDebts[idx] = updatedDebt;
+      const index = prev.debts.findIndex((d) => d.id === debt.id);
+      let newDebts: Debt[];
+      if (index >= 0) {
+        newDebts = [...prev.debts];
+        newDebts[index] = debt;
       } else {
-        newDebts.push(updatedDebt);
+        newDebts = [...prev.debts, debt];
       }
-      const newDb = { ...prev, debts: newDebts };
-      triggerBackgroundSync(newDb, false);
+      const newDb = { ...prev, debts: newDebts, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
       return newDb;
     });
   };
@@ -292,23 +299,32 @@ export default function App() {
   const handleRemoveDebt = (id: number) => {
     setDb((prev) => {
       const newDebts = prev.debts.filter((d) => d.id !== id);
-      const newDb = { ...prev, debts: newDebts };
-      triggerBackgroundSync(newDb, false);
+      const newDb = { ...prev, debts: newDebts, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
       return newDb;
     });
   };
 
-  const handleUpdateGoal = (updatedGoal: Goal) => {
+  const handleUpdateIncome = (salary: number, other: number) => {
     setDb((prev) => {
-      const idx = prev.goals.findIndex((g) => g.id === updatedGoal.id);
-      let newGoals = [...prev.goals];
-      if (idx !== -1) {
-        newGoals[idx] = updatedGoal;
+      const newDb = { ...prev, salaryIncome: salary, otherIncome: other, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
+      return newDb;
+    });
+  };
+
+  const handleUpdateGoal = (goal: Goal) => {
+    setDb((prev) => {
+      const index = prev.goals.findIndex((g) => g.id === goal.id);
+      let newGoals: Goal[];
+      if (index >= 0) {
+        newGoals = [...prev.goals];
+        newGoals[index] = goal;
       } else {
-        newGoals.push(updatedGoal);
+        newGoals = [...prev.goals, goal];
       }
-      const newDb = { ...prev, goals: newGoals };
-      triggerBackgroundSync(newDb, false);
+      const newDb = { ...prev, goals: newGoals, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
       return newDb;
     });
   };
@@ -316,145 +332,20 @@ export default function App() {
   const handleRemoveGoal = (id: number) => {
     setDb((prev) => {
       const newGoals = prev.goals.filter((g) => g.id !== id);
-      const newDb = { ...prev, goals: newGoals };
-      triggerBackgroundSync(newDb, false);
+      const newDb = { ...prev, goals: newGoals, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      triggerBackgroundSync(newDb);
       return newDb;
     });
   };
 
-  const handleUpdateIncome = (salary: number, other: number) => {
-    setDb((prev) => {
-      const newDb = { ...prev, salaryIncome: salary, otherIncome: other };
-      triggerBackgroundSync(newDb, false);
-      return newDb;
-    });
-  };
-
-  // Drive sync button on Tab 1: Instant snapshot + background upload
-  const handleSyncDrive = () => {
-    setIsSyncing(true);
-    const now = new Date();
-    const timeStr = now.toLocaleDateString('vi-VN');
-
-    const totalAssets = db.assets.reduce((sum, a) => sum + (a.amount || 0), 0);
-    const totalDebts = db.debts.reduce((sum, d) => {
-      if (d.category === 'type1' || d.category === 'type2' || d.category === 'type_free') {
-        return sum + Math.max(0, d.amount - (d.paidPrincipal || 0));
-      }
-      return sum;
-    }, 0);
-    const netWorth = totalAssets - totalDebts;
-
-    const totalPassiveInflow = db.assets.reduce((sum, a) => {
-      if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
-        return sum + (a.cashflow || 0);
-      }
-      if (a.type === 'stock' && a.quantity && a.divCash) {
-        return sum + Math.round((a.quantity * a.divCash) / 12);
-      }
-      if (a.type === 'saving' && a.rate && a.termMonths) {
-        return sum + Math.round((a.amount * (a.rate / 100) * (a.termMonths / 12)) / a.termMonths);
-      }
-      return sum;
-    }, 0);
-    const totalInflow = (db.salaryIncome || 0) + (db.otherIncome || 0) + totalPassiveInflow;
-
-    let totalOutflow = 0;
-    db.debts.forEach((d) => {
-      if (d.status !== 'Đã tất toán' && d.category !== 'type_free') {
-        let m = d.monthlyBefore || d.installmentAmount || d.periodicAmount || 0;
-        if (d.frequency === 'annual') m = Math.round(m / 12);
-        else if (d.frequency === 'biannual') m = Math.round(m / 6);
-        else if (d.frequency === 'quarterly') m = Math.round(m / 3);
-        totalOutflow += m;
-      }
-    });
-
-    const netCashFlow = totalInflow - totalOutflow;
-
-    let totalDebtPaid = 0;
-    let totalDebtOriginal = 0;
-    db.debts.forEach((d) => {
-      if (d.category !== 'type4' && d.category !== 'type_free') {
-        const remaining = d.status === 'Đã tất toán' ? 0 : d.amount;
-        const paid = d.paidPrincipal || 0;
-        totalDebtPaid += paid;
-        totalDebtOriginal += remaining + paid;
-      }
-    });
-    const debtProgressPercent = totalDebtOriginal > 0 ? Math.min(100, Math.round((totalDebtPaid / totalDebtOriginal) * 100)) : 0;
-
-    const dcaGoals = db.goals.filter((g) => g.group === 'dca' || g.goalType === 'dca');
-    const dcaProgressPercent = dcaGoals.length > 0
-      ? Math.round((dcaGoals.filter((g) => (g.totalBought || 0) >= (g.targetQty || 1)).length / dcaGoals.length) * 100)
-      : 85;
-
-    let liquidAssets = 0;
-    db.assets.forEach((a) => {
-      if (a.level === '1' && (a.type === 'cash' || a.type === 'saving' || a.type === 'gold')) {
-        liquidAssets += a.amount;
-      }
-    });
-    const runwayGoal = db.goals.find((g) => g.group === 'runway' || g.name.toLowerCase().includes('runway'));
-    const runwayTarget = runwayGoal?.target || totalOutflow * 6 || 1;
-    const runwayPercent = Math.min(100, Math.round((liquidAssets / runwayTarget) * 100));
-
-    let milestoneTarget = 0;
-    let milestoneAccumulated = 0;
-    db.goals.filter((g) => g.group === 'milestone' || g.goalType === 'milestone').forEach((g) => {
-      milestoneTarget += g.target || 0;
-      milestoneAccumulated += g.totalBought || 0;
-    });
-    const milestoneProgressPercent = milestoneTarget > 0 ? Math.min(100, Math.round((milestoneAccumulated / milestoneTarget) * 100)) : 0;
-
-    const existingIndex = (db.history || []).findIndex(
-      (h) => h.date === timeStr || (h.timestamp && Math.abs(h.timestamp - now.getTime()) < 3600000)
-    );
-    let newHistory = [...(db.history || [])];
-    const newEntry = {
-      date: timeStr,
-      netWorth,
-      totalAssets,
-      totalDebts,
-      totalInflow,
-      totalOutflow,
-      netCashFlow,
-      debtProgressPercent,
-      dcaProgressPercent,
-      runwayPercent,
-      milestoneProgressPercent,
-      timestamp: now.getTime(),
-    };
-    if (existingIndex !== -1) {
-      newHistory[existingIndex] = newEntry;
-    } else {
-      newHistory.push(newEntry);
-    }
-
-    const updatedDb: DatabaseState = {
-      ...db,
-      lastUpdate: timeStr,
-      history: newHistory,
-    };
-
-    // Instant local commit
-    setDb(updatedDb);
-    triggerBackgroundSync(updatedDb, true);
-
-    // Fast UI button feedback (no 5s blocking)
-    setTimeout(() => {
-      setIsSyncing(false);
-    }, 500);
-  };
-
-  // JSON Export / Import
   const handleExportJSON = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(db, null, 2));
     const downloadAnchor = document.createElement('a');
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const safeName = (userDisplay || 'user').replace(/[^a-zA-Z0-9]/g, '_');
     downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `ThapTaiSan_${safeName}_${dateStr}.json`);
+    downloadAnchor.setAttribute(
+      'download',
+      `ThapTaiSan_Backup_${userDisplay || 'User'}_${new Date().toISOString().split('T')[0]}.json`
+    );
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -463,8 +354,9 @@ export default function App() {
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (parsed && typeof parsed === 'object') {
@@ -481,8 +373,12 @@ export default function App() {
   };
 
   return (
-    <div className="bg-slate-50 text-slate-800 min-h-screen pb-16 font-sans overflow-x-hidden">
-      <AuthModal isOpen={showAuthModal} onLogin={handleLogin} />
+    <div className="bg-slate-50 text-slate-800 min-h-screen pb-24 sm:pb-28 font-sans overflow-x-hidden">
+      <AuthModal
+        isOpen={showAuthModal}
+        onLogin={handleLogin}
+        onFaceIdUnlock={handleFaceIdUnlock}
+      />
 
       {/* Fixed Header Top Bar - ALWAYS Permanently Pinned at Top */}
       <header className="fixed top-0 left-0 right-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
@@ -497,12 +393,14 @@ export default function App() {
             onImportJSON={handleImportJSON}
             onLogout={handleLogout}
             cloudSyncStatus={cloudSyncStatus}
+            onSyncDrive={handleSyncDrive}
+            isSyncing={isSyncing}
           />
         </div>
       </header>
 
-      {/* Main Content Area - 100% Fluid & Fully Responsive with top offset for fixed header */}
-      <main className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 pt-[74px] sm:pt-26 lg:pt-20 pb-8 sm:pb-12">
+      {/* Main Content Area - Responsive with top offset for fixed header */}
+      <main className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 pt-[62px] sm:pt-22 pb-6">
         {currentTab === 'pyramid' && (
           <TabPyramid
             db={db}
@@ -535,6 +433,18 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Fixed Bottom Navigation Bar - Easy to reach & clear */}
+      <FixedBottomNav
+        currentTab={currentTab}
+        onSwitchTab={(tab) => {
+          setCurrentTab(tab);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        assetCount={db.assets.length}
+        debtCount={db.debts.length}
+        goalCount={db.goals.length}
+      />
     </div>
   );
 }

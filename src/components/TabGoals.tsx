@@ -228,6 +228,14 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
 
   const dcaGoals = db.goals.filter((g) => g.group === 'dca' || g.goalType === 'dca');
   const dcaCount = dcaGoals.length;
+  const currentDcaPct = Math.min(
+    100,
+    Math.round(
+      dcaCount > 0
+        ? (db.goals.filter((g) => (g.group === 'dca' || g.goalType === 'dca') && (g.totalBought || 0) >= (g.targetQty || 1)).length / dcaCount) * 100
+        : 85
+    )
+  );
 
   const liquidAssets = db.assets
     .filter((a) => a.level === '1' && (a.type === 'cash' || a.type === 'saving' || a.type === 'gold'))
@@ -378,13 +386,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         },
         plugins: {
           legend: {
-            display: true,
-            position: 'top',
-            labels: {
-              boxWidth: 8,
-              padding: 6,
-              font: { size: 9.5, weight: 'bold' },
-            },
+            display: false,
           },
         },
         scales: {
@@ -502,15 +504,16 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
 
   const handleEditGoal = (g: Goal) => {
     setEditingGoalId(g.id);
-    setGoalGroup(g.group);
-    setFormMode(g.goalType);
+    setGoalGroup(g.group || 'dca');
+    const isDcaMode = g.goalType === 'dca' || (!g.goalType && (g.group === 'dca' || g.group === 'runway'));
+    setFormMode(isDcaMode ? 'dca' : 'milestone');
     setAssetType(g.assetType || 'stock');
     setLinkedAssetId(g.linkedAssetId);
     setLinkedDebtId(g.linkedDebtId);
-    setGoalName(g.name);
+    setGoalName(g.name || '');
     setFreqMonths(g.freqMonths || 1);
     setTargetQtyStr(formatNumberString(g.targetQty || g.targetAmountPerPeriod || ''));
-    setUnit(g.unit || 'CP');
+    setUnit(g.unit || (g.assetType === 'gold' ? 'chỉ' : g.assetType === 'saving' || g.assetType === 'cash' ? 'VNĐ' : 'CP'));
     setGoalDay(g.day || 10);
     setGoalTargetStr(g.target ? formatNumberString(g.target) : '');
     setGoalYears(g.years || 2);
@@ -548,7 +551,9 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
       return;
     }
 
-    if (formMode === 'dca') {
+    const isDca = formMode === 'dca' || (formMode !== 'milestone' && (goalGroup === 'dca' || goalGroup === 'runway'));
+
+    if (isDca) {
       const qty = parseFormattedNumber(targetQtyStr);
       if (qty <= 0) {
         alert('Vui lòng nhập định mức mỗi kỳ lớn hơn 0!');
@@ -931,52 +936,13 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     <div className="space-y-3 sm:space-y-6">
       {/* 1. DEDICATED MOBILE VIEW (< md) - COMPACT GOALS CASHFLOW DASHBOARD */}
       <div className="md:hidden bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2.5">
-        {/* Row 1: Đệm Dòng Tiền Tự Do Còn Lại Banner */}
-        <div
-          className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 border ${
-            remainingFreeBuffer >= 0
-              ? 'bg-blue-50/70 border-blue-200/80'
-              : 'bg-rose-50/70 border-rose-200/80'
-          }`}
-        >
-          <div className="min-w-0 flex-1 mr-2">
-            <span
-              className={`text-[9.5px] font-bold uppercase tracking-wide block truncate ${
-                remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
-              }`}
-            >
-              3. Đệm Tiền Tự Do Còn Lại
-            </span>
-            <span
-              className={`text-base font-black tracking-tight block truncate ${
-                remainingFreeBuffer >= 0 ? 'text-blue-700' : 'text-rose-600'
-              }`}
-            >
-              {isPrivacyMode
-                ? '•••••• ₫'
-                : remainingFreeBuffer >= 0
-                ? `+${formatVND(remainingFreeBuffer)}/th`
-                : `${formatVND(remainingFreeBuffer)}/th`}
-            </span>
-          </div>
-          <span
-            className={`px-2 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
-              remainingFreeBuffer >= 0
-                ? 'bg-blue-100 text-blue-800 border-blue-300'
-                : 'bg-rose-100 text-rose-800 border-rose-300'
-            }`}
-          >
-            {remainingFreeBuffer >= 0 ? '✓ An toàn' : '⚠️ Quá tải'}
-          </span>
-        </div>
-
-        {/* Row 2: 2 Mini Columns side-by-side (1. Thặng Dư T2 vs 2. Cần Cho Mục Tiêu) */}
+        {/* Row 1: 2 Mini Columns side-by-side (Thặng Dư T2 vs Cần Cho Mục Tiêu) */}
         <div className="grid grid-cols-2 gap-2 text-xs">
           {/* Cột 1: Thặng Dư Tab 2 */}
           <div className="bg-emerald-50/70 border border-emerald-200/80 p-2 rounded-lg flex flex-col justify-between">
             <div>
               <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wide block truncate">
-                1. Thặng Dư T2
+                Thặng Dư Khả Dụng
               </span>
               <div className="text-xs font-black text-emerald-700 mt-0.5 truncate">
                 {isPrivacyMode ? '•••••• ₫' : `+${formatVND(monthlySurplusAvailable)}`}
@@ -1000,7 +966,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             <div>
               <div className="flex items-center justify-between gap-1">
                 <span className="text-[9px] font-bold text-amber-800 uppercase tracking-wide truncate">
-                  2. Cần Cho MT
+                  Nhu Cầu Mục Tiêu
                 </span>
                 <span
                   className={`px-1 py-0.2 rounded text-[8.5px] font-bold border shrink-0 ${
@@ -1030,6 +996,45 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Row 2: 3rd Item - Đệm Dòng Tiền Tự Do Còn Lại Banner (Placed in 3rd position, without /th) */}
+        <div
+          className={`flex items-center justify-between rounded-lg px-2.5 py-2 border ${
+            remainingFreeBuffer >= 0
+              ? 'bg-blue-50/70 border-blue-200/80'
+              : 'bg-rose-50/70 border-rose-200/80'
+          }`}
+        >
+          <div className="min-w-0 flex-1 mr-2">
+            <span
+              className={`text-[9.5px] font-bold uppercase tracking-wide block truncate ${
+                remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
+              }`}
+            >
+              Đệm Tiền Tự Do Còn Lại
+            </span>
+            <span
+              className={`text-base font-black tracking-tight block truncate ${
+                remainingFreeBuffer >= 0 ? 'text-blue-700' : 'text-rose-600'
+              }`}
+            >
+              {isPrivacyMode
+                ? '•••••• ₫'
+                : remainingFreeBuffer >= 0
+                ? `+${formatVND(remainingFreeBuffer)}`
+                : `${formatVND(remainingFreeBuffer)}`}
+            </span>
+          </div>
+          <span
+            className={`px-2 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
+              remainingFreeBuffer >= 0
+                ? 'bg-blue-100 text-blue-800 border-blue-300'
+                : 'bg-rose-100 text-rose-800 border-rose-300'
+            }`}
+          >
+            {remainingFreeBuffer >= 0 ? '✓ An toàn' : '⚠️ Quá tải'}
+          </span>
         </div>
 
         {/* Chú thích 4 trụ cột */}
@@ -1136,7 +1141,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
           <div className="bg-emerald-50/70 border border-emerald-200/80 p-4 rounded-xl flex flex-col justify-between min-w-0">
             <div>
               <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">
-                1. Dòng Tiền Thặng Dư
+                Dòng Tiền Thặng Dư
               </span>
               <div className="text-xl lg:text-2xl font-black text-emerald-700 mt-1.5 leading-tight">
                 {isPrivacyMode ? '•••••• ₫' : `+${formatVND(monthlySurplusAvailable)}`}
@@ -1163,7 +1168,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             <div>
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs font-bold text-amber-800 uppercase tracking-wider block">
-                  2. Ngân Sách Cần
+                  Ngân Sách Mục Tiêu Cần
                 </span>
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold border shrink-0 ${
@@ -1212,7 +1217,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
                     remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
                   }`}
                 >
-                  3. Đệm Tiền Tự Do Còn Lại
+                  Đệm Tiền Tự Do Còn Lại
                 </span>
                 <span
                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 ${
@@ -1232,8 +1237,8 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
                 {isPrivacyMode
                   ? '•••••• ₫'
                   : remainingFreeBuffer >= 0
-                  ? `+${formatVND(remainingFreeBuffer)}/tháng`
-                  : `${formatVND(remainingFreeBuffer)}/tháng`}
+                  ? `+${formatVND(remainingFreeBuffer)}`
+                  : `${formatVND(remainingFreeBuffer)}`}
               </div>
             </div>
 
@@ -2424,14 +2429,14 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                  Bảng Thẩm Định Phương Án Mua BĐS & Thử Tải Dòng Tiền Trả Nợ
+                  Thẩm Định Mua BĐS & Thử Tải Nợ
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 shrink-0 whitespace-nowrap">
-                  Thử tải nợ
+                  Mô phỏng
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                Khớp vốn tự thân • Thử tải nợ qua các giai đoạn ưu đãi, sau ưu đãi & ân hạn gốc
+                Khớp vốn tự có & thử tải dòng tiền trả góp qua các giai đoạn
               </p>
             </div>
           </div>
@@ -2443,7 +2448,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
               title="Tự động trích xuất vốn tự thân và dòng tiền khả dụng từ Tháp tài sản & Dòng tiền"
             >
               <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 text-emerald-600" />
-              <span className="whitespace-nowrap">Tự động điền dữ liệu</span>
+              <span className="whitespace-nowrap">Tự động điền</span>
             </button>
             <button
               onClick={() => setShowStressTest(!showStressTest)}
@@ -2780,7 +2785,31 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             ))}
           </div>
         </div>
-        <div className="h-56 sm:h-72">
+        {/* RESPONSIVE CLEAN HTML LEGEND */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 pt-1">
+          <div className="flex items-center space-x-1.5 px-2 py-1.5 bg-rose-50/80 border border-rose-200/90 rounded-lg text-[10px] sm:text-xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0"></span>
+            <span className="font-semibold text-rose-900 truncate">1. Trả Nợ:</span>
+            <span className="font-black text-rose-700 ml-auto">{debtProgressPercent}%</span>
+          </div>
+          <div className="flex items-center space-x-1.5 px-2 py-1.5 bg-emerald-50/80 border border-emerald-200/90 rounded-lg text-[10px] sm:text-xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+            <span className="font-semibold text-emerald-900 truncate">2. Tích Sản:</span>
+            <span className="font-black text-emerald-700 ml-auto">{currentDcaPct}%</span>
+          </div>
+          <div className="flex items-center space-x-1.5 px-2 py-1.5 bg-blue-50/80 border border-blue-200/90 rounded-lg text-[10px] sm:text-xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
+            <span className="font-semibold text-blue-900 truncate">3. Dự Phòng:</span>
+            <span className="font-black text-blue-700 ml-auto">{runwayMonths}T ({runwayPercent}%)</span>
+          </div>
+          <div className="flex items-center space-x-1.5 px-2 py-1.5 bg-amber-50/80 border border-amber-200/90 rounded-lg text-[10px] sm:text-xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
+            <span className="font-semibold text-amber-900 truncate">4. Cột Mốc:</span>
+            <span className="font-black text-amber-700 ml-auto">{milestoneProgressPercent}%</span>
+          </div>
+        </div>
+
+        <div className="h-56 sm:h-72 pt-1">
           <canvas ref={chartProgressRef}></canvas>
         </div>
       </div>
