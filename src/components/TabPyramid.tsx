@@ -860,10 +860,16 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
         </button>
       </div>
 
-      {/* Asset Form Modal (Responsive Bottom-Sheet on Mobile) */}
+      {/* Asset Form Modal (Responsive Bottom-Sheet on Mobile, Click outside backdrop to exit) */}
       {showForm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-3xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
+        <div
+          onClick={handleCancelForm}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full max-w-3xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto cursor-default"
+          >
             {/* Mobile Drag Handle Indicator */}
             <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto mb-1 sm:hidden"></div>
             <form onSubmit={handleSubmit} className="space-y-4">

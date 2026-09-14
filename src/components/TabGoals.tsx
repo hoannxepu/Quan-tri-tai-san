@@ -1526,13 +1526,17 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         </div>
       </div>
 
-      {/* GOAL FORM MODAL OVERLAY (Responsive Bottom Sheet on Mobile) */}
+      {/* GOAL FORM MODAL OVERLAY (Responsive Bottom Sheet on Mobile, Click outside backdrop to exit) */}
       {showGoalForm && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+        <div
+          onClick={handleCancelForm}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto cursor-pointer"
+        >
           <form
             ref={goalFormRef}
             onSubmit={handleSaveGoal}
-            className={`bg-white p-4 sm:p-6 rounded-t-3xl sm:rounded-2xl border shadow-2xl space-y-4 w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto ${
+            onClick={(e) => e.stopPropagation()}
+            className={`bg-white p-4 sm:p-6 rounded-t-3xl sm:rounded-2xl border shadow-2xl space-y-4 w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto cursor-default ${
               editingGoalId ? 'border-amber-400 ring-4 ring-amber-100' : 'border-slate-200'
             }`}
           >

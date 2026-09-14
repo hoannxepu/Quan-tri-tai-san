@@ -12,6 +12,8 @@ import {
   X,
   ShieldCheck,
   User,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 import { PyramidLogo } from './PyramidLogo';
 
@@ -120,13 +122,24 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: REAL-TIME DIGITAL CLOCK WITH FULL YEAR (HH:mm:ss • DD/MM/YYYY) */}
-        <div className="flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-200/80 rounded-lg sm:rounded-xl transition shadow-2xs shrink-0 select-none">
-          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600 animate-pulse shrink-0" />
-          <div className="flex items-center space-x-1 font-mono text-[10px] sm:text-xs font-bold text-slate-800">
-            <span className="tracking-tight">{timeString}</span>
-            <span className="text-slate-300">•</span>
-            <span className="text-[9.5px] sm:text-[11px] text-slate-600 font-medium">{dateString}</span>
+        {/* Center: SUSTAINABLE WEALTH MOTTO (DESKTOP) & REAL-TIME DIGITAL CLOCK */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          {/* Professional Sustainable Finance Motto - Displayed on medium & desktop screens */}
+          <div className="hidden lg:flex items-center space-x-2 px-3 py-1 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/80 rounded-xl shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-[11px] font-bold text-emerald-900 tracking-tight">
+              Tích sản vững chắc • Quản trị bền vững • Tự do tài chính
+            </span>
+          </div>
+
+          {/* REAL-TIME DIGITAL CLOCK WITH FULL YEAR (HH:mm:ss • DD/MM/YYYY) */}
+          <div className="flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 bg-slate-100/90 hover:bg-slate-200/70 border border-slate-200/80 rounded-lg sm:rounded-xl transition shadow-2xs shrink-0 select-none">
+            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600 animate-pulse shrink-0" />
+            <div className="flex items-center space-x-1 font-mono text-[10px] sm:text-xs font-bold text-slate-800">
+              <span className="tracking-tight">{timeString}</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-[9.5px] sm:text-[11px] text-slate-600 font-medium">{dateString}</span>
+            </div>
           </div>
         </div>
 
