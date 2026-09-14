@@ -5,7 +5,8 @@ import {
   loadCloudData,
   saveCloudData,
 } from './utils/storage';
-import { normalizeAccountKey, hashString } from './utils/format';
+import { normalizeAccountKey, hashString, getCurrentTimestampVN } from './utils/format';
+import { recordRegisteredAccount, getRegisteredAccountsList } from './utils/faceIdEngine';
 import { Header } from './components/Header';
 import { AuthModal } from './components/AuthModal';
 import { FixedBottomNav } from './components/FixedBottomNav';
@@ -90,8 +91,9 @@ export default function App() {
   };
 
   // Face ID Biometric Unlock Handler
-  const handleFaceIdUnlock = async (): Promise<boolean> => {
+  const handleFaceIdUnlock = async (accountName?: string): Promise<boolean> => {
     const savedAccount =
+      accountName ||
       localStorage.getItem('thaptaisan_faceid_account') ||
       localStorage.getItem('thaptaisan_saved_account') ||
       localStorage.getItem('thaptaisan_active_account') ||
@@ -100,6 +102,13 @@ export default function App() {
     if (!savedAccount) return false;
 
     const accKey = normalizeAccountKey(savedAccount);
+    let latestCloud = cloudRootRef.current;
+    const fetched = await loadCloudData();
+    if (fetched) {
+      latestCloud = fetched;
+      setCloudRoot(fetched);
+    }
+
     const localSaved = localStorage.getItem(`thaptaisan_local_${accKey}`);
     let userData: DatabaseState = DEFAULT_DATABASE_STATE;
 
@@ -109,9 +118,14 @@ export default function App() {
       } catch (e) {
         console.error('Error parsing local cache for Face ID:', e);
       }
-    } else if (cloudRoot.users?.[accKey]) {
-      userData = cloudRoot.users[accKey];
+    } else if (latestCloud.users?.[accKey]) {
+      userData = latestCloud.users[accKey];
     }
+
+    localStorage.setItem('thaptaisan_saved_account', savedAccount);
+    localStorage.setItem('thaptaisan_faceid_account', savedAccount);
+    localStorage.setItem('thaptaisan_active_account', savedAccount);
+    recordRegisteredAccount(savedAccount);
 
     setupUserSession(savedAccount, accKey, userData);
     setCurrentTab('pyramid');
@@ -119,7 +133,11 @@ export default function App() {
     return true;
   };
 
-  const handleLogin = async (rawAccount: string, pass: string, remember: boolean): Promise<boolean> => {
+  const handleLogin = async (
+    rawAccount: string,
+    pass: string,
+    remember: boolean
+  ): Promise<{ success: boolean; reason?: string }> => {
     const accKey = normalizeAccountKey(rawAccount);
     const hashed = await hashString(pass);
 
@@ -133,22 +151,34 @@ export default function App() {
     if (!latestCloud.passwords) latestCloud.passwords = {};
     if (!latestCloud.users) latestCloud.users = {};
 
+    const localSaved = localStorage.getItem(`thaptaisan_local_${accKey}`);
+    const registeredList = getRegisteredAccountsList();
+    const isKnownLocally = registeredList.some(
+      (a) => normalizeAccountKey(a) === accKey
+    );
+
+    // If account not found in cloud and not locally registered -> Reject login
+    if (!latestCloud.passwords[accKey] && !isKnownLocally && !localSaved) {
+      return {
+        success: false,
+        reason: 'Tài khoản chưa tồn tại trên hệ thống. Vui lòng chuyển sang tab Đăng Ký để tạo tài khoản và cài đặt Face ID!',
+      };
+    }
+
+    // Password verification
     if (latestCloud.passwords[accKey]) {
       const savedHash = latestCloud.passwords[accKey];
       if (savedHash !== hashed && savedHash !== pass) {
-        return false;
+        return {
+          success: false,
+          reason: 'Mật khẩu không chính xác. Vui lòng thử lại!',
+        };
       }
-    } else {
-      // New user registration
-      latestCloud.passwords[accKey] = hashed;
-      latestCloud.users[accKey] = {
-        ...DEFAULT_DATABASE_STATE,
-        lastUpdate: new Date().toLocaleDateString('vi-VN'),
-      };
-      saveCloudData(latestCloud); // Run in background
     }
 
-    const userData = latestCloud.users[accKey] || DEFAULT_DATABASE_STATE;
+    const userData =
+      latestCloud.users[accKey] ||
+      (localSaved ? JSON.parse(localSaved) : DEFAULT_DATABASE_STATE);
 
     if (remember) {
       localStorage.setItem('thaptaisan_saved_account', rawAccount);
@@ -161,11 +191,61 @@ export default function App() {
     }
     localStorage.setItem('thaptaisan_active_account', rawAccount);
     localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(userData));
+    recordRegisteredAccount(rawAccount);
 
     setupUserSession(rawAccount, accKey, userData);
     setCurrentTab('pyramid');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    return true;
+    return { success: true };
+  };
+
+  const handleRegister = async (
+    rawAccount: string,
+    pass: string,
+    remember: boolean
+  ): Promise<{ success: boolean; reason?: string }> => {
+    const accKey = normalizeAccountKey(rawAccount);
+    const hashed = await hashString(pass);
+
+    let latestCloud = cloudRootRef.current;
+    const fetched = await loadCloudData();
+    if (fetched) {
+      latestCloud = fetched;
+      setCloudRoot(fetched);
+    }
+
+    if (!latestCloud.passwords) latestCloud.passwords = {};
+    if (!latestCloud.users) latestCloud.users = {};
+
+    // Register or overwrite credentials for this account
+    latestCloud.passwords[accKey] = hashed;
+    const initialUserData: DatabaseState = {
+      ...DEFAULT_DATABASE_STATE,
+      lastUpdate: getCurrentTimestampVN(),
+    };
+    latestCloud.users[accKey] = initialUserData;
+
+    // Save to cloud in background
+    saveCloudData(latestCloud);
+
+    // Save locally
+    if (remember) {
+      localStorage.setItem('thaptaisan_saved_account', rawAccount);
+      localStorage.setItem('thaptaisan_saved_pass', pass);
+      localStorage.setItem('thaptaisan_faceid_enabled', '1');
+      localStorage.setItem('thaptaisan_faceid_account', rawAccount);
+    } else {
+      localStorage.setItem('thaptaisan_saved_account', rawAccount);
+      localStorage.removeItem('thaptaisan_saved_pass');
+    }
+    localStorage.setItem('thaptaisan_active_account', rawAccount);
+    localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(initialUserData));
+    recordRegisteredAccount(rawAccount);
+
+    setupUserSession(rawAccount, accKey, initialUserData);
+    setCurrentTab('pyramid');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return { success: true };
   };
 
   const handleLogout = () => {
@@ -248,10 +328,13 @@ export default function App() {
   // Manual Explicit Google Drive Sync Action (Clickable from Header in any tab)
   const handleSyncDrive = async () => {
     setIsSyncing(true);
-    triggerBackgroundSync(db, true);
+    const newTimestamp = getCurrentTimestampVN();
+    const updatedDb = { ...db, lastUpdate: newTimestamp };
+    setDb(updatedDb);
+    triggerBackgroundSync(updatedDb, true);
     setTimeout(() => {
       setIsSyncing(false);
-    }, 1200);
+    }, 1000);
   };
 
   // State mutation actions (instant state update + silent async sync)
@@ -265,7 +348,7 @@ export default function App() {
       } else {
         newAssets = [...prev.assets, asset];
       }
-      const newDb = { ...prev, assets: newAssets, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, assets: newAssets, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -274,7 +357,7 @@ export default function App() {
   const handleRemoveAsset = (id: number) => {
     setDb((prev) => {
       const newAssets = prev.assets.filter((a) => a.id !== id);
-      const newDb = { ...prev, assets: newAssets, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, assets: newAssets, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -290,7 +373,7 @@ export default function App() {
       } else {
         newDebts = [...prev.debts, debt];
       }
-      const newDb = { ...prev, debts: newDebts, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, debts: newDebts, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -299,7 +382,7 @@ export default function App() {
   const handleRemoveDebt = (id: number) => {
     setDb((prev) => {
       const newDebts = prev.debts.filter((d) => d.id !== id);
-      const newDb = { ...prev, debts: newDebts, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, debts: newDebts, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -307,7 +390,7 @@ export default function App() {
 
   const handleUpdateIncome = (salary: number, other: number) => {
     setDb((prev) => {
-      const newDb = { ...prev, salaryIncome: salary, otherIncome: other, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, salaryIncome: salary, otherIncome: other, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -323,7 +406,7 @@ export default function App() {
       } else {
         newGoals = [...prev.goals, goal];
       }
-      const newDb = { ...prev, goals: newGoals, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, goals: newGoals, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -332,7 +415,7 @@ export default function App() {
   const handleRemoveGoal = (id: number) => {
     setDb((prev) => {
       const newGoals = prev.goals.filter((g) => g.id !== id);
-      const newDb = { ...prev, goals: newGoals, lastUpdate: new Date().toLocaleDateString('vi-VN') };
+      const newDb = { ...prev, goals: newGoals, lastUpdate: getCurrentTimestampVN() };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -377,6 +460,7 @@ export default function App() {
       <AuthModal
         isOpen={showAuthModal}
         onLogin={handleLogin}
+        onRegister={handleRegister}
         onFaceIdUnlock={handleFaceIdUnlock}
       />
 
@@ -409,6 +493,7 @@ export default function App() {
             onRemoveAsset={handleRemoveAsset}
             onSyncDrive={handleSyncDrive}
             isSyncing={isSyncing}
+            cloudSyncStatus={cloudSyncStatus}
           />
         )}
 

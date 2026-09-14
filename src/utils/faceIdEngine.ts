@@ -765,7 +765,40 @@ export class FaceIdPipeline {
 // -------------------------------------------------------------
 
 const STORAGE_PREFIX = 'thaptaisan_face_vector_';
+const REGISTERED_ACCOUNTS_KEY = 'thaptaisan_registered_accounts_list';
 export const DEFAULT_FACE_SIMILARITY_THRESHOLD = 0.55;
+
+/** Get all registered account keys */
+export function getRegisteredAccountsList(): string[] {
+  try {
+    const raw = localStorage.getItem(REGISTERED_ACCOUNTS_KEY);
+    if (!raw) {
+      // Seed with currently saved account if present
+      const savedAcc = localStorage.getItem('thaptaisan_saved_account');
+      if (savedAcc) return [savedAcc.trim()];
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Record an account into local registry */
+export function recordRegisteredAccount(accountKey: string): void {
+  try {
+    if (!accountKey) return;
+    const list = getRegisteredAccountsList();
+    const clean = accountKey.trim();
+    if (!list.some((a) => a.toLowerCase() === clean.toLowerCase())) {
+      list.push(clean);
+      localStorage.setItem(REGISTERED_ACCOUNTS_KEY, JSON.stringify(list));
+    }
+  } catch (e) {
+    console.error('Failed to record account:', e);
+  }
+}
 
 /** Save 512-d biometric face descriptor for an account */
 export function saveFaceDescriptor(accountKey: string, descriptor: number[]): boolean {
@@ -775,6 +808,7 @@ export function saveFaceDescriptor(accountKey: string, descriptor: number[]): bo
     localStorage.setItem(key, JSON.stringify(descriptor));
     localStorage.setItem('thaptaisan_faceid_enabled', '1');
     localStorage.setItem('thaptaisan_faceid_account', accountKey);
+    recordRegisteredAccount(accountKey);
     return true;
   } catch (err) {
     console.error('Failed to save face descriptor:', err);

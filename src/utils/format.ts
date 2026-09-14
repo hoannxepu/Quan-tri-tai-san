@@ -26,6 +26,18 @@ export function formatDateVN(dateStr?: string): string {
   return d.toLocaleDateString('vi-VN');
 }
 
+export function getCurrentTimestampVN(): string {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const dateStr = now.toLocaleDateString('vi-VN');
+  return `${timeStr} - ${dateStr}`;
+}
+
 export function calculateMaturityDate(startDateStr?: string, months?: number): string {
   if (!startDateStr || !months) return '';
   const d = new Date(startDateStr);
