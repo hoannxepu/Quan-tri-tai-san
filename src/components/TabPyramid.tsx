@@ -285,71 +285,6 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
 
   return (
     <div className="space-y-3 sm:space-y-5">
-      {/* PINNED SCIENTIFIC SYNC & REALTIME TIMESTAMP BANNER */}
-      <div className="sticky top-[58px] sm:top-[68px] z-20 bg-white/95 backdrop-blur-md px-3 sm:px-4 py-2.5 rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-2.5">
-        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-          {/* Cloud Sync Status Pill */}
-          <div
-            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
-              cloudSyncStatus === 'syncing' || isSyncing
-                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : cloudSyncStatus === 'offline'
-                ? 'bg-rose-50 text-rose-700 border-rose-200'
-                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                cloudSyncStatus === 'syncing' || isSyncing
-                  ? 'bg-amber-500 animate-spin'
-                  : cloudSyncStatus === 'offline'
-                  ? 'bg-rose-500'
-                  : 'bg-emerald-500 animate-pulse'
-              }`}
-            ></span>
-            <span className="whitespace-nowrap">
-              {cloudSyncStatus === 'syncing' || isSyncing
-                ? 'Đang đồng bộ Drive...'
-                : cloudSyncStatus === 'offline'
-                ? 'Chế độ Offline'
-                : 'Google Drive: Đã đồng bộ'}
-            </span>
-          </div>
-
-          {/* Dynamic jumping last saved timestamp */}
-          <div className="flex items-center space-x-1.5 text-xs text-slate-600 min-w-0">
-            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span className="text-slate-500 text-[11px] font-medium hidden sm:inline">Lần lưu gần nhất:</span>
-            <span className="text-slate-500 text-[11px] font-medium sm:hidden">Lưu:</span>
-            <span className="font-bold text-slate-900 font-mono text-[11.5px] truncate">
-              {db.lastUpdate || 'Mới cập nhật'}
-            </span>
-          </div>
-        </div>
-
-        {/* Action Button & Stats */}
-        <div className="flex items-center space-x-2 shrink-0">
-          <div className="hidden lg:flex items-center space-x-2 text-[11px] text-slate-500 font-medium px-2 py-0.5 bg-slate-50 rounded-lg border border-slate-100">
-            <span><strong className="text-emerald-600">{db.assets.length}</strong> TS</span>
-            <span className="text-slate-300">•</span>
-            <span><strong className="text-rose-600">{db.debts.length}</strong> Nợ</span>
-            <span className="text-slate-300">•</span>
-            <span><strong className="text-blue-600">{db.goals.length}</strong> MT</span>
-          </div>
-
-          <button
-            type="button"
-            onClick={onSyncDrive}
-            disabled={isSyncing}
-            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer flex items-center space-x-1.5 shadow-2xs disabled:opacity-75"
-            title="Nhấn để lưu và đồng bộ ngay với Google Drive"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="whitespace-nowrap">{isSyncing ? 'Đang lưu...' : 'Đồng Bộ Ngay'}</span>
-          </button>
-        </div>
-      </div>
-
       {/* 1. DEDICATED MOBILE VIEW (< md) - COMPACT, SLEEK, BANKING APP STYLE */}
       <div className="md:hidden bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
         {/* Row 1: Tài Sản Ròng (Net Worth) - Trọng tâm tài chính, vừa mắt */}
@@ -386,7 +321,10 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
               </span>
             </div>
             <div className="mt-1 pt-1 border-t border-slate-200/60 text-[8.5px] text-slate-500 font-medium">
-              {isPrivacyMode ? '••••••' : wealthBenchmark.ratioText}
+              <div>{isPrivacyMode ? '••••••' : wealthBenchmark.ratioText}</div>
+              <div className="text-emerald-700 font-semibold mt-0.5">
+                {db.assets.length} Danh mục • {db.goals.length} Mục tiêu
+              </div>
             </div>
           </div>
 
@@ -401,22 +339,11 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
               </span>
             </div>
             <div className="mt-1 pt-1 border-t border-slate-200/60 text-[8.5px] text-slate-500 font-medium">
-              Đòn bẩy: {totalAssets > 0 ? ((totalDebts / totalAssets) * 100).toFixed(1) : 0}% TTS
+              <div>Đòn bẩy: {totalAssets > 0 ? ((totalDebts / totalAssets) * 100).toFixed(1) : 0}% TTS</div>
+              <div className="text-rose-700 font-semibold mt-0.5">
+                {db.debts.length} Khoản nợ đang quản lý
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* Row 3: Thống kê số lượng mục */}
-        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-600">
-          <div className="flex items-center space-x-1.5 text-[9px]">
-            <span><strong className="text-emerald-600">{db.assets.length}</strong> TS</span>
-            <span className="text-slate-300">•</span>
-            <span><strong className="text-rose-600">{db.debts.length}</strong> Nợ</span>
-            <span className="text-slate-300">•</span>
-            <span><strong className="text-blue-600">{db.goals.length}</strong> MT</span>
-          </div>
-          <div className="text-[9px] text-slate-500 font-medium">
-            Lần lưu: <span className="font-semibold text-slate-700">{db.lastUpdate || 'Mới cập nhật'}</span>
           </div>
         </div>
       </div>
@@ -449,7 +376,12 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
             </div>
 
             <div className="mt-2.5 pt-2 border-t border-slate-200/60 text-[11px] text-slate-600 font-medium leading-relaxed">
-              {isPrivacyMode ? 'So với VN: ••••••' : wealthBenchmark.ratioText}
+              <div>{isPrivacyMode ? 'So với VN: ••••••' : wealthBenchmark.ratioText}</div>
+              <div className="text-emerald-700 font-semibold mt-0.5 flex items-center space-x-1.5">
+                <span>{db.assets.length} Danh mục tài sản</span>
+                <span className="text-slate-300">•</span>
+                <span>{db.goals.length} Mục tiêu</span>
+              </div>
             </div>
           </div>
 
@@ -464,7 +396,10 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
               </div>
             </div>
             <div className="mt-2.5 pt-2 border-t border-slate-200/60 text-[11px] text-slate-600 font-medium">
-              Đòn bẩy: {totalAssets > 0 ? ((totalDebts / totalAssets) * 100).toFixed(1) : 0}% TTS
+              <div>Đòn bẩy: {totalAssets > 0 ? ((totalDebts / totalAssets) * 100).toFixed(1) : 0}% TTS</div>
+              <div className="text-rose-700 font-semibold mt-0.5">
+                {db.debts.length} Khoản nợ đang quản lý
+              </div>
             </div>
           </div>
 
@@ -481,20 +416,6 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
             <div className="mt-2.5 pt-2 border-t border-emerald-200/60 text-[11px] text-emerald-800/90 font-medium">
               Thực có sau khi trừ hết mọi khoản nợ
             </div>
-          </div>
-        </div>
-
-        {/* Quản lý danh mục & lần lưu */}
-        <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5 text-xs text-slate-600">
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
-            <span>Đang quản lý: <strong className="text-emerald-600">{db.assets.length} Danh mục</strong></span>
-            <span className="text-slate-300">•</span>
-            <span><strong className="text-rose-600">{db.debts.length} Nợ</strong></span>
-            <span className="text-slate-300">•</span>
-            <span><strong className="text-blue-600">{db.goals.length} Mục tiêu</strong></span>
-          </div>
-          <div className="text-slate-500 text-xs">
-            Lần lưu gần nhất: <strong className="text-slate-800">{db.lastUpdate || 'Mới cập nhật'}</strong>
           </div>
         </div>
       </div>

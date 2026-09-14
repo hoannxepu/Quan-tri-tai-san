@@ -14,6 +14,7 @@ import {
   User,
   Sparkles,
   TrendingUp,
+  Mail,
 } from 'lucide-react';
 import { PyramidLogo } from './PyramidLogo';
 
@@ -29,6 +30,8 @@ interface HeaderProps {
   cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
   onSyncDrive?: () => void;
   isSyncing?: boolean;
+  lastUpdate?: string;
+  onOpenEmailReport?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -43,6 +46,8 @@ export const Header: React.FC<HeaderProps> = ({
   cloudSyncStatus = 'synced',
   onSyncDrive,
   isSyncing = false,
+  lastUpdate,
+  onOpenEmailReport,
 }) => {
   const [showMenu, setShowMenu] = useState<boolean>(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -143,31 +148,35 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right Action Cluster: Drive Save Button, Privacy Eye, 3-Line Menu (Hamburger) */}
+        {/* Right Action Cluster: Single Compact Stacked Sync Button, Privacy Eye, 3-Line Menu */}
         <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
-          {/* PROMINENT DRIVE SAVE & SYNC BUTTON (Fixed at top, accessible from any tab) */}
+          {/* SINGLE PINNED COMPACT SYNC BUTTON (Đồng bộ ở trên, thời gian ở dưới) */}
           <button
             type="button"
             onClick={onSyncDrive}
             disabled={isSyncing || cloudSyncStatus === 'syncing'}
-            className={`flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition active:scale-95 cursor-pointer shadow-xs shrink-0 ${
+            className={`flex flex-col items-center justify-center px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl transition active:scale-95 cursor-pointer shadow-2xs shrink-0 border select-none ${
               cloudSyncStatus === 'syncing' || isSyncing
-                ? 'bg-blue-600 text-white animate-pulse'
+                ? 'bg-blue-600 text-white border-blue-500 animate-pulse'
                 : cloudSyncStatus === 'synced'
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                : 'bg-slate-800 hover:bg-slate-900 text-white'
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500/80'
+                : 'bg-slate-800 hover:bg-slate-900 text-white border-slate-700'
             }`}
-            title="Lưu dữ liệu ngay lập tức vào máy và đồng bộ lên Google Drive"
+            title="Nhấn để đồng bộ dữ liệu ngay lập tức"
           >
-            <RotateCw
-              className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${
-                cloudSyncStatus === 'syncing' || isSyncing ? 'animate-spin' : ''
-              }`}
-            />
-            <span className="hidden xs:inline sm:inline">
-              {cloudSyncStatus === 'syncing' || isSyncing ? 'Đang lưu...' : 'Lưu Drive'}
+            <div className="flex items-center space-x-1">
+              <RotateCw
+                className={`w-3 h-3 shrink-0 ${
+                  cloudSyncStatus === 'syncing' || isSyncing ? 'animate-spin' : ''
+                }`}
+              />
+              <span className="text-[10px] sm:text-xs font-bold leading-tight">
+                {cloudSyncStatus === 'syncing' || isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ'}
+              </span>
+            </div>
+            <span className="text-[8px] sm:text-[9px] text-emerald-100 font-mono leading-none mt-0.5 whitespace-nowrap">
+              {lastUpdate || 'Vừa cập nhật'}
             </span>
-            <span className="xs:hidden">Lưu</span>
           </button>
 
           {/* Privacy Toggle (Eye) */}
@@ -216,6 +225,20 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Email Report Action */}
+                {onOpenEmailReport && (
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      onOpenEmailReport();
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 flex items-center space-x-2 text-emerald-800 font-semibold cursor-pointer border-b border-slate-100"
+                  >
+                    <Mail className="w-4 h-4 text-emerald-600" />
+                    <span>Báo Cáo & Nhắc Nhở Email</span>
+                  </button>
+                )}
 
                 {/* Face ID Quick Settings Toggle */}
                 <div

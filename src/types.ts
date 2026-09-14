@@ -97,6 +97,19 @@ export interface HistoryPoint {
   timestamp: number;
 }
 
+export interface EmailScheduleSettings {
+  enabled: boolean;
+  email: string;
+  sendDay: number; // 1 - 31
+  sendHour: number; // 0 - 23
+  includeMonthlyGoals: boolean;
+  includeNetWorthOverview: boolean;
+  includeDebts: boolean;
+  includeCashFlow: boolean;
+  includeAssetPyramid: boolean;
+  lastSentMonth?: string; // e.g. "2026-09"
+}
+
 export interface DatabaseState {
   assets: Asset[];
   debts: Debt[];
@@ -105,4 +118,6 @@ export interface DatabaseState {
   salaryIncome: number;
   otherIncome: number;
   lastUpdate: string;
+  emailSchedule?: EmailScheduleSettings;
 }
+

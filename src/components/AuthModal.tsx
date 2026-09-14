@@ -20,6 +20,8 @@ import {
   ArrowRight,
   Shield,
   Info,
+  X,
+  ArrowLeft,
 } from 'lucide-react';
 import { PyramidLogo } from './PyramidLogo';
 import { normalizeAccountKey } from '../utils/format';
@@ -41,6 +43,7 @@ interface AuthModalProps {
   onLogin: (account: string, pass: string, remember: boolean) => Promise<{ success: boolean; reason?: string } | boolean>;
   onRegister?: (account: string, pass: string, remember: boolean) => Promise<{ success: boolean; reason?: string } | boolean>;
   onFaceIdUnlock?: (accountName?: string) => Promise<boolean>;
+  onClose?: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -48,9 +51,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogin,
   onRegister,
   onFaceIdUnlock,
+  onClose,
 }) => {
-  // Tabs: 'faceid' (Xác thực khuôn mặt) | 'login' (Đăng nhập mật khẩu) | 'register' (Đăng ký tài khoản + Face ID)
-  const [activeTab, setActiveTab] = useState<'faceid' | 'login' | 'register'>('faceid');
+  // Default to password login as requested
+  const [activeTab, setActiveTab] = useState<'login' | 'faceid' | 'register'>('login');
   
   // Registration Sub-step: 'info' (nhập số đt/pass) -> 'camera' (quét Face ID bắt buộc)
   const [regStep, setRegStep] = useState<'info' | 'camera'>('info');
@@ -481,11 +485,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl border border-slate-100 space-y-4 my-auto relative">
-        {/* Mobile Drag Pill */}
-        <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1 sm:hidden"></div>
+        {/* Top bar with Close X and Settings */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-1.5">
+            {activeTab !== 'login' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  stopCamera();
+                  setError('');
+                  setSuccessMsg('');
+                  setActiveTab('login');
+                }}
+                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                title="Quay lại Đăng nhập"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Quay lại</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSettings(!showSettings)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer rounded-lg hover:bg-slate-100 transition"
+                title="Tùy chỉnh ngưỡng nhận diện Face ID"
+              >
+                <Sliders className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Close button X */}
+          {onClose && (
+            <button
+              type="button"
+              onClick={() => {
+                stopCamera();
+                onClose();
+              }}
+              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+              title="Đóng / Thoát ứng dụng"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
 
         {/* Brand Header */}
-        <div className="text-center relative">
+        <div className="text-center relative pt-0.5">
           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto mb-2 p-1 shadow-xs border border-slate-200/90 relative">
             <PyramidLogo className="w-full h-full" />
             <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-xs">
@@ -493,21 +540,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </span>
           </div>
           <h2 className="text-base font-black text-slate-900 tracking-tight">
-            Tháp Tài Sản • Bảo Mật Sinh Trắc Học
+            {activeTab === 'login' && 'Đăng Nhập Tài Khoản'}
+            {activeTab === 'faceid' && 'Xác Thực Face ID AI'}
+            {activeTab === 'register' && 'Đăng Ký Tài Khoản Mới'}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Xác thực Face ID AI
+            {activeTab === 'login' && 'Quản trị Tháp Tài Sản Cá Nhân'}
+            {activeTab === 'faceid' && 'Xác thực sinh trắc học khuôn mặt'}
+            {activeTab === 'register' && 'Bảo vệ dữ liệu tài chính & Face ID'}
           </p>
-
-          {/* Quick Settings Icon */}
-          <button
-            type="button"
-            onClick={() => setShowSettings(!showSettings)}
-            className="absolute top-0 right-0 p-1 text-slate-400 hover:text-slate-700 cursor-pointer rounded-lg hover:bg-slate-100 transition"
-            title="Tùy chỉnh ngưỡng Face ID"
-          >
-            <Sliders className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Optional CV Threshold Settings Drawer */}
@@ -537,60 +578,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* 3-Segmented Tab Switch: Face ID | Đăng Nhập | Đăng Ký */}
-        <div className="grid grid-cols-3 p-1 bg-slate-100 rounded-xl text-xs font-bold text-slate-600">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('faceid');
-              if (currentAcc && isEnrolled) {
-                startCameraScan('verify', currentAcc);
-              }
-            }}
-            className={`py-2 px-1 rounded-lg flex items-center justify-center space-x-1 transition cursor-pointer ${
-              activeTab === 'faceid'
-                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                : 'hover:text-slate-900'
-            }`}
-          >
-            <ScanFace className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span className="truncate">Face ID</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              stopCamera();
-              setActiveTab('login');
-            }}
-            className={`py-2 px-1 rounded-lg flex items-center justify-center space-x-1 transition cursor-pointer ${
-              activeTab === 'login'
-                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                : 'hover:text-slate-900'
-            }`}
-          >
-            <LogIn className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-            <span className="truncate">Đăng Nhập</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              stopCamera();
-              setRegStep('info');
-              setActiveTab('register');
-            }}
-            className={`py-2 px-1 rounded-lg flex items-center justify-center space-x-1 transition cursor-pointer ${
-              activeTab === 'register'
-                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                : 'hover:text-slate-900'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-            <span className="truncate">Đăng Ký</span>
-          </button>
-        </div>
-
         {error && (
           <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs px-3 py-2.5 rounded-xl font-semibold flex items-start gap-1.5 animate-in fade-in">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
@@ -608,183 +595,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Hidden computational canvas */}
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* TAB 1: FACE ID UNLOCK */}
-        {activeTab === 'faceid' && (
-          <div className="space-y-3.5 text-center py-1">
-            {!isEnrolled ? (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-center space-y-3">
-                <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
-                  <ScanFace className="w-6 h-6" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-amber-900">
-                    {currentAcc ? `Chưa có Face ID cho "${currentAcc}"` : 'Chưa có tài khoản đăng ký Face ID'}
-                  </h4>
-                  <p className="text-[11px] text-amber-700 mt-1">
-                    Bạn cần đăng ký tài khoản và quét khuôn mặt để sử dụng tính năng mở khóa Face ID.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      stopCamera();
-                      setRegStep('info');
-                      if (currentAcc) setRegAccount(currentAcc);
-                      setActiveTab('register');
-                    }}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>Đăng Ký Tài Khoản & Face ID</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      stopCamera();
-                      setActiveTab('login');
-                    }}
-                    className="w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold py-2 px-3 rounded-xl text-xs transition cursor-pointer"
-                  >
-                    Đăng nhập bằng Mật khẩu
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Account badge & switcher */}
-                <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                  <span className="text-slate-500 font-medium">Tài khoản:</span>
-                  <span className="font-bold text-slate-800 truncate max-w-[180px]">{currentAcc}</span>
-                </div>
-
-                {/* Circular Camera & AI HUD */}
-                <div className="relative w-44 h-44 mx-auto flex items-center justify-center">
-                  <div
-                    className={`absolute inset-0 rounded-full border-2 transition-all duration-300 ${
-                      faceIdSuccess
-                        ? 'border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-105'
-                        : isFaceDetected && livenessPassed
-                        ? 'border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.4)]'
-                        : isFaceDetected
-                        ? 'border-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.3)]'
-                        : 'border-slate-300 border-dashed animate-[spin_12s_linear_infinite]'
-                    }`}
-                  ></div>
-
-                  <div className="w-38 h-38 rounded-full overflow-hidden bg-slate-900 relative shadow-inner border-2 border-white flex items-center justify-center">
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      autoPlay
-                      className="w-full h-full object-cover scale-x-[-1]"
-                    />
-
-                    <canvas
-                      ref={overlayCanvasRef}
-                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                    />
-
-                    {!faceIdSuccess && (
-                      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                        <div className="w-full h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399] animate-bounce"></div>
-                      </div>
-                    )}
-
-                    {faceIdSuccess && (
-                      <div className="absolute inset-0 bg-emerald-600/90 backdrop-blur-xs flex flex-col items-center justify-center text-white animate-in fade-in">
-                        <Check className="w-12 h-12 stroke-[3] animate-bounce" />
-                        <span className="text-xs font-bold mt-1">Đã mở khóa</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Status & Realtime Metrics */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-800">
-                    {faceIdSuccess ? (
-                      <span className="text-emerald-600 font-black flex items-center gap-1">
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>Xác thực thành công</span>
-                      </span>
-                    ) : (
-                      <>
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            livenessPassed
-                              ? 'bg-emerald-500 animate-ping'
-                              : isFaceDetected
-                              ? 'bg-blue-500 animate-pulse'
-                              : 'bg-amber-400'
-                          }`}
-                        ></span>
-                        <span className="truncate max-w-[260px]">{faceScanStatus}</span>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-center gap-2 pt-0.5">
-                    <div
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
-                        livenessPassed
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-slate-100 text-slate-600 border-slate-200'
-                      }`}
-                    >
-                      <Activity className="w-3 h-3" />
-                      <span>{livenessPassed ? 'Liveness ✓' : 'Chớp mắt / Cử động'}</span>
-                    </div>
-
-                    {similarityScore !== null && (
-                      <div
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          similarityScore >= threshold
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-rose-50 text-rose-700 border-rose-200'
-                        }`}
-                      >
-                        Khớp: {(similarityScore * 100).toFixed(0)}%
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-center gap-3 pt-2 text-[11px] text-slate-500">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        stopCamera();
-                        setRegAccount(currentAcc);
-                        setRegStep('info');
-                        setActiveTab('register');
-                      }}
-                      className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer underline flex items-center gap-1"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Đăng ký lại Face ID</span>
-                    </button>
-                    <span>•</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        stopCamera();
-                        setActiveTab('login');
-                      }}
-                      className="text-slate-600 hover:text-slate-900 font-medium cursor-pointer"
-                    >
-                      Dùng Mật khẩu
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* TAB 2: ĐĂNG NHẬP MẬT KHẨU (Login Form) */}
+        {/* VIEW 1: ĐĂNG NHẬP MẬT KHẨU (DEFAULT) */}
         {activeTab === 'login' && (
-          <form onSubmit={handleSubmitLogin} className="space-y-3.5 pt-1">
+          <form onSubmit={handleSubmitLogin} className="space-y-3 pt-1">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Số Điện Thoại hoặc Gmail
@@ -840,11 +653,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </label>
             </div>
 
-            {/* Submit Button */}
+            {/* Primary Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-3.5 rounded-xl text-sm transition cursor-pointer flex items-center justify-center space-x-2 shadow-sm disabled:opacity-70 mt-2"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-3 rounded-xl text-sm transition cursor-pointer flex items-center justify-center space-x-2 shadow-xs disabled:opacity-70 mt-1"
             >
               {loading ? (
                 <>
@@ -859,25 +672,229 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               )}
             </button>
 
+            {/* Divider */}
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-slate-200"></div>
+              <span className="flex-shrink mx-2 text-slate-400 text-[11px] font-medium">hoặc tùy chọn</span>
+              <div className="flex-grow border-t border-slate-200"></div>
+            </div>
+
+            {/* Dedicated Face ID Login Option Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setError('');
+                setSuccessMsg('');
+                setActiveTab('faceid');
+                if (currentAcc && isEnrolled) {
+                  startCameraScan('verify', currentAcc);
+                }
+              }}
+              className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100/80 active:scale-98 border border-emerald-200 text-emerald-800 font-bold rounded-xl text-xs flex items-center justify-center space-x-2 transition cursor-pointer shadow-2xs"
+            >
+              <ScanFace className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Đăng nhập bằng Face ID</span>
+            </button>
+
             {/* Switch to Register */}
-            <div className="text-center pt-1">
+            <div className="text-center pt-2 text-xs text-slate-500">
+              Chưa có tài khoản?{' '}
               <button
                 type="button"
                 onClick={() => {
                   stopCamera();
+                  setError('');
+                  setSuccessMsg('');
                   setRegStep('info');
                   if (account) setRegAccount(account);
                   setActiveTab('register');
                 }}
-                className="text-xs text-blue-600 hover:text-blue-800 font-semibold cursor-pointer underline"
+                className="text-blue-600 hover:text-blue-800 font-bold cursor-pointer hover:underline"
               >
-                Chưa có tài khoản? Đăng ký & cài Face ID ngay
+                Đăng ký tài khoản mới
               </button>
             </div>
           </form>
         )}
 
-        {/* TAB 3: ĐĂNG KÝ TÀI KHOẢN + BẮT BUỘC QUÉT FACE ID */}
+        {/* VIEW 2: FACE ID UNLOCK */}
+        {activeTab === 'faceid' && (
+          <div className="space-y-3.5 text-center py-1">
+            {!isEnrolled ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-center space-y-3">
+                <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
+                  <ScanFace className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-900">
+                    {currentAcc ? `Chưa có Face ID cho "${currentAcc}"` : 'Chưa có tài khoản đăng ký Face ID'}
+                  </h4>
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Bạn cần đăng ký tài khoản và quét khuôn mặt để sử dụng tính năng mở khóa Face ID.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopCamera();
+                      setRegStep('info');
+                      if (currentAcc) setRegAccount(currentAcc);
+                      setActiveTab('register');
+                    }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Đăng Ký Tài Khoản & Face ID</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopCamera();
+                      setActiveTab('login');
+                    }}
+                    className="w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold py-2 px-3 rounded-xl text-xs transition cursor-pointer"
+                  >
+                    Quay lại Đăng nhập bằng Mật khẩu
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Account badge & switcher */}
+                <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                  <span className="text-slate-500 font-medium">Tài khoản:</span>
+                  <span className="font-bold text-slate-800 truncate max-w-[180px]">{currentAcc}</span>
+                </div>
+
+                {/* Circular Camera & AI HUD */}
+                <div className="relative w-44 h-44 mx-auto flex items-center justify-center">
+                  <div
+                    className={`absolute inset-0 rounded-full border-2 transition-all duration-300 ${
+                      faceIdSuccess
+                        ? 'border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-105'
+                        : isFaceDetected && livenessPassed
+                        ? 'border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.4)]'
+                        : isFaceDetected
+                        ? 'border-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.3)]'
+                        : 'border-slate-300 border-dashed animate-[spin_12s_linear_infinite]'
+                    }`}
+                  ></div>
+
+                  <div className="w-38 h-38 rounded-full overflow-hidden bg-slate-900 relative shadow-inner border-2 border-white flex items-center justify-center">
+                    <video
+                      ref={videoRef}
+                      playsInline
+                      muted
+                      autoPlay
+                      className="w-full h-full object-cover scale-x-[-1]"
+                    />
+
+                    <canvas
+                      ref={overlayCanvasRef}
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    />
+
+                    {!faceIdSuccess && (
+                      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                        <div className="w-full h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399] animate-bounce"></div>
+                      </div>
+                    )}
+
+                    {faceIdSuccess && (
+                      <div className="absolute inset-0 bg-emerald-600/90 backdrop-blur-xs flex flex-col items-center justify-center text-white animate-in fade-in">
+                        <Check className="w-12 h-12 stroke-[3] animate-bounce" />
+                        <span className="text-xs font-bold mt-1">Đã mở khóa</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status & Realtime Metrics */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-800">
+                    {faceIdSuccess ? (
+                      <span className="text-emerald-600 font-black flex items-center gap-1">
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Xác thực thành công</span>
+                      </span>
+                    ) : (
+                      <>
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            livenessPassed
+                              ? 'bg-emerald-500 animate-ping'
+                              : isFaceDetected
+                              ? 'bg-blue-500 animate-pulse'
+                              : 'bg-amber-400'
+                          }`}
+                        ></span>
+                        <span className="truncate max-w-[260px]">{faceScanStatus}</span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2 pt-0.5">
+                    <div
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                        livenessPassed
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}
+                    >
+                      <Activity className="w-3 h-3" />
+                      <span>{livenessPassed ? 'Liveness ✓' : 'Chớp mắt / Cử động'}</span>
+                    </div>
+
+                    {similarityScore !== null && (
+                      <div
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          similarityScore >= threshold
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}
+                      >
+                        Khớp: {(similarityScore * 100).toFixed(0)}%
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stopCamera();
+                        setActiveTab('login');
+                      }}
+                      className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Quay lại Đăng nhập bằng Mật khẩu</span>
+                    </button>
+
+                    <div className="text-center text-[11px] text-slate-500">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopCamera();
+                          setRegAccount(currentAcc);
+                          setRegStep('info');
+                          setActiveTab('register');
+                        }}
+                        className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer underline flex items-center justify-center gap-1 mx-auto"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Đăng ký lại Face ID cho tài khoản này</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* VIEW 3: ĐĂNG KÝ TÀI KHOẢN + BẮT BUỘC QUÉT FACE ID */}
         {activeTab === 'register' && (
           <div className="space-y-3.5 pt-1">
             {regStep === 'info' ? (
@@ -954,16 +971,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
-                <div className="text-center pt-1">
+                <div className="text-center pt-2 text-xs text-slate-500">
+                  Đã có tài khoản?{' '}
                   <button
                     type="button"
                     onClick={() => {
                       stopCamera();
+                      setError('');
                       setActiveTab('login');
                     }}
-                    className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer underline"
+                    className="text-blue-600 hover:text-blue-800 font-bold cursor-pointer hover:underline"
                   >
-                    Đã có tài khoản? Đăng nhập ngay
+                    Đăng nhập ngay
                   </button>
                 </div>
               </form>

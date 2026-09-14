@@ -13,6 +13,10 @@ import { FixedBottomNav } from './components/FixedBottomNav';
 import { TabPyramid } from './components/TabPyramid';
 import { TabDebts } from './components/TabDebts';
 import { TabGoals } from './components/TabGoals';
+import { PyramidLogo } from './components/PyramidLogo';
+import { EmailReportModal } from './components/EmailReportModal';
+import { EmailScheduleSettings } from './types';
+import { Lock, ScanFace, LogIn } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'pyramid' | 'debts' | 'goals'>('pyramid');
@@ -24,6 +28,7 @@ export default function App() {
   const [currentAccountKey, setCurrentAccountKey] = useState<string>('');
   const [userDisplay, setUserDisplay] = useState<string>('');
   const [showAuthModal, setShowAuthModal] = useState<boolean>(true);
+  const [showEmailReportModal, setShowEmailReportModal] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
 
@@ -455,6 +460,14 @@ export default function App() {
     reader.readAsText(file);
   };
 
+  const handleSaveEmailSchedule = (newSchedule: EmailScheduleSettings) => {
+    setDb((prev) => {
+      const newDb = { ...prev, emailSchedule: newSchedule, lastUpdate: getCurrentTimestampVN() };
+      triggerBackgroundSync(newDb);
+      return newDb;
+    });
+  };
+
   return (
     <div className="bg-slate-50 text-slate-800 min-h-screen pb-24 sm:pb-28 font-sans overflow-x-hidden">
       <AuthModal
@@ -462,7 +475,45 @@ export default function App() {
         onLogin={handleLogin}
         onRegister={handleRegister}
         onFaceIdUnlock={handleFaceIdUnlock}
+        onClose={() => setShowAuthModal(false)}
       />
+
+      {/* Monthly Financial Email Report & Auto Reminder Modal */}
+      <EmailReportModal
+        isOpen={showEmailReportModal}
+        onClose={() => setShowEmailReportModal(false)}
+        db={db}
+        userDisplay={userDisplay}
+        onSaveSchedule={handleSaveEmailSchedule}
+      />
+
+      {/* When user closes modal without logging in: Show clean exit/locked screen */}
+      {!userDisplay && !showAuthModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-lg text-white flex flex-col items-center justify-center p-6 text-center animate-in fade-in">
+          <div className="w-16 h-16 bg-white/10 rounded-2xl p-2.5 flex items-center justify-center mb-4 border border-white/20 shadow-2xl backdrop-blur-md relative">
+            <PyramidLogo className="w-full h-full" />
+            <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs shadow-xs">
+              <Lock className="w-3 h-3" />
+            </span>
+          </div>
+          <h2 className="text-xl font-black tracking-tight text-white mb-1.5">
+            Ứng Dụng Đang Khóa
+          </h2>
+          <p className="text-xs text-slate-400 max-w-xs mb-6 leading-relaxed">
+            Phiên làm việc đã đóng để bảo vệ dữ liệu tài chính. Vui lòng đăng nhập hoặc xác thực sinh trắc học để tiếp tục.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-xs">
+            <button
+              type="button"
+              onClick={() => setShowAuthModal(true)}
+              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Đăng Nhập / Mở Khóa</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Fixed Header Top Bar - ALWAYS Permanently Pinned at Top */}
       <header className="fixed top-0 left-0 right-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
@@ -479,6 +530,8 @@ export default function App() {
             cloudSyncStatus={cloudSyncStatus}
             onSyncDrive={handleSyncDrive}
             isSyncing={isSyncing}
+            lastUpdate={db.lastUpdate}
+            onOpenEmailReport={() => setShowEmailReportModal(true)}
           />
         </div>
       </header>
