@@ -110,6 +110,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
   const [goalNote, setGoalNote] = useState('');
 
   // Table & Stress test states
+  const [showPillarList, setShowPillarList] = useState(false); // Mặc định là ẩn danh sách 4 trụ cột
   const [showGoalTable, setShowGoalTable] = useState(false);
   const [showStressTest, setShowStressTest] = useState(false);
   const [simTargetValStr, setSimTargetValStr] = useState('3.000.000.000');
@@ -1257,185 +1258,345 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         </div>
       </div>
 
-      {/* 4 PILLAR PROGRESS METRIC CARDS - MOBILE (< md) */}
-      <div className="md:hidden bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2.5">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-          <h3 className="text-xs font-bold text-slate-900 flex items-center">
-            <Target className="w-3.5 h-3.5 text-emerald-600 mr-1.5 shrink-0" />
-            <span>4 Trụ Cột Hoạch Định & Tích Sản</span>
-          </h3>
-          <span className="text-[9px] text-slate-400 font-medium">Tổng quan</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {/* Card 1: Trả Nợ */}
-          <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider truncate">
-                1. Trả Nợ Vay
-              </span>
-              <i className="fa-solid fa-file-invoice-dollar text-rose-500 text-[10px]"></i>
-            </div>
-            <div className="text-sm font-black text-slate-900">{debtProgressPercent}%</div>
-            <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
-              <div
-                className="bg-rose-500 h-full transition-all duration-500"
-                style={{ width: `${debtProgressPercent}%` }}
-              ></div>
-            </div>
-            <div className="text-[8.5px] text-slate-500 font-medium truncate">
-              Đã trả: {formatVND(totalDebtPaid, isPrivacyMode)}
-            </div>
-          </div>
-
-          {/* Card 2: DCA */}
-          <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider truncate">
-                2. DCA Định Kỳ
-              </span>
-              <i className="fa-solid fa-coins text-amber-500 text-[10px]"></i>
-            </div>
-            <div className="text-sm font-black text-slate-900">{dcaCount} Mục tiêu</div>
-            <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: dcaCount ? '100%' : '0%' }}
-              ></div>
-            </div>
-            <div className="text-[8.5px] text-slate-500 font-medium truncate">Định kỳ tháng/quý</div>
-          </div>
-
-          {/* Card 3: Runway */}
-          <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider truncate">
-                3. Quỹ Runway
-              </span>
-              <i className="fa-solid fa-shield-halved text-blue-600 text-[10px]"></i>
-            </div>
-            <div className="text-sm font-black text-slate-900">{runwayMonths} tháng</div>
-            <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
-              <div
-                className="bg-blue-500 h-full transition-all duration-500"
-                style={{ width: `${runwayPercent}%` }}
-              ></div>
-            </div>
-            <div className="text-[8.5px] text-slate-500 font-medium truncate">
-              Đệm: {formatVND(liquidAssets, isPrivacyMode)}
-            </div>
-          </div>
-
-          {/* Card 4: Quỹ Lớn */}
-          <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider truncate">
-                4. Cột Mốc / BĐS
-              </span>
-              <i className="fa-solid fa-landmark text-emerald-600 text-[10px]"></i>
-            </div>
-            <div className="text-sm font-black text-slate-900">{milestoneProgressPercent}%</div>
-            <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: `${milestoneProgressPercent}%` }}
-              ></div>
-            </div>
-            <div className="text-[8.5px] text-slate-500 font-medium truncate">
-              Cần: {formatVND(totalMilestoneTarget, isPrivacyMode)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 4 PILLAR PROGRESS METRIC CARDS - DESKTOP (>= md) */}
-      <div className="hidden md:block bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 flex items-center">
-              <Target className="w-4 h-4 text-emerald-600 mr-2" />
+      {/* 4 PILLAR PROGRESS METRIC LIST - DẠNG DANH SÁCH RÕ RÀNG, TRỰC QUAN (HỖ TRỢ ẨN / HIỆN, MẶC ĐỊNH LÀ ẨN) */}
+      <div className="bg-white p-3.5 sm:p-5 lg:p-6 rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-xs">
+        <div
+          onClick={() => setShowPillarList(!showPillarList)}
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 cursor-pointer select-none group"
+        >
+          <div className="min-w-0 flex-1">
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center group-hover:text-emerald-700 transition-colors">
+              <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 mr-1.5 sm:mr-2 shrink-0" />
               <span>Hoạch Định Mục Tiêu & Kế Hoạch Tích Sản</span>
             </h3>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
               Kỷ luật tích sản định kỳ (DCA) • Cột mốc tài sản lớn • Thẩm định phương án vay
             </p>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 lg:gap-4">
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Nhóm 1: Trả Nợ Vay
-              </span>
-              <i className="fa-solid fa-file-invoice-dollar text-rose-500"></i>
-            </div>
-            <div className="text-xl font-black text-slate-900">{debtProgressPercent}%</div>
-            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-rose-500 h-full transition-all duration-500"
-                style={{ width: `${debtProgressPercent}%` }}
-              ></div>
-            </div>
-            <div className="text-[10px] text-slate-500 font-medium leading-relaxed">
-              Đã trả: {formatVND(totalDebtPaid, isPrivacyMode)} / {formatVND(totalDebtOriginal, isPrivacyMode)}
-            </div>
-          </div>
+          <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+            {/* Tóm tắt nhanh khi đang ẩn */}
+            {!showPillarList && (
+              <div className="hidden md:flex items-center space-x-2 px-2.5 py-1 bg-slate-50 border border-slate-200/80 rounded-lg text-[10px] text-slate-600 font-medium">
+                <span className="font-bold text-rose-600">Nợ: {debtProgressPercent}%</span>
+                <span className="text-slate-300">•</span>
+                <span className="font-bold text-amber-600">DCA: {dcaCount} MT</span>
+                <span className="text-slate-300">•</span>
+                <span className="font-bold text-blue-600">Runway: {runwayMonths}th</span>
+                <span className="text-slate-300">•</span>
+                <span className="font-bold text-emerald-700">Quỹ: {milestoneProgressPercent}%</span>
+              </div>
+            )}
 
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Nhóm 2: Tích Sản Định Kỳ
-              </span>
-              <i className="fa-solid fa-coins text-amber-500"></i>
-            </div>
-            <div className="text-xl font-black text-slate-900">{dcaCount} Mục tiêu</div>
-            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: dcaCount ? '100%' : '0%' }}
-              ></div>
-            </div>
-            <div className="text-[10px] text-slate-500 font-medium leading-relaxed">Theo dõi mua bù & nạp định kỳ</div>
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Nhóm 3: Dự Phòng (Runway)
-              </span>
-              <i className="fa-solid fa-shield-halved text-blue-600"></i>
-            </div>
-            <div className="text-xl font-black text-slate-900">{runwayMonths} tháng</div>
-            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-blue-500 h-full transition-all duration-500"
-                style={{ width: `${runwayPercent}%` }}
-              ></div>
-            </div>
-            <div className="text-[10px] text-slate-500 font-medium leading-relaxed">
-              Thanh khoản: {formatVND(liquidAssets, isPrivacyMode)}
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Nhóm 4: Quỹ Lớn / BĐS
-              </span>
-              <i className="fa-solid fa-landmark text-emerald-600"></i>
-            </div>
-            <div className="text-xl font-black text-slate-900">{milestoneProgressPercent}%</div>
-            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: `${milestoneProgressPercent}%` }}
-              ></div>
-            </div>
-            <div className="text-[10px] text-slate-500 font-medium leading-relaxed">
-              Mục tiêu: {formatVND(totalMilestoneTarget, isPrivacyMode)}
-            </div>
+            {/* Nút Ẩn / Hiện */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPillarList(!showPillarList);
+              }}
+              className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[10.5px] sm:text-xs font-bold transition-all duration-150 cursor-pointer shadow-2xs ${
+                showPillarList
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/90'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200/90'
+              }`}
+            >
+              <span>{showPillarList ? 'Ẩn danh sách' : 'Hiện danh sách (4 nhóm)'}</span>
+              {showPillarList ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-emerald-600" />
+              )}
+            </button>
           </div>
         </div>
+
+        {/* Danh sách 4 Nhóm Trụ Cột (Chỉ mở ra khi showPillarList === true) */}
+        {showPillarList && (
+          <div className="space-y-2 sm:space-y-2.5 pt-3 sm:pt-4 mt-3 border-t border-slate-100 animate-in fade-in duration-200">
+            {/* Nhóm 1: Trả Nợ Vay */}
+            <div
+              onClick={() => setSelectedGroupFilter(selectedGroupFilter === 'debt' ? 'all' : 'debt')}
+              className={`group p-2.5 sm:p-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
+                selectedGroupFilter === 'debt'
+                  ? 'bg-rose-50/70 border-rose-300 ring-1 ring-rose-200 shadow-2xs'
+                  : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200/80 hover:border-slate-300'
+              }`}
+              title="Nhấn để lọc các mục tiêu thuộc Nhóm 1: Trả Nợ Vay"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+                {/* Cột trái: Icon + Nhóm + Chi tiết */}
+                <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-rose-50 border border-rose-200/80 flex items-center justify-center shrink-0 shadow-2xs">
+                    <i className="fa-solid fa-file-invoice-dollar text-rose-500 text-sm sm:text-base"></i>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                        Nhóm 1: Trả Nợ Vay & Giảm Đòn Bẩy
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9.5px] font-bold border bg-rose-100/70 text-rose-700 border-rose-200 shrink-0">
+                        {totalDebtOriginal > 0 && debtProgressPercent >= 100 ? 'Đã tất toán' : 'Đang trả nợ'}
+                      </span>
+                      {selectedGroupFilter === 'debt' && (
+                        <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9px] font-bold bg-slate-900 text-white shrink-0">
+                          Đang lọc
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-slate-500 font-medium mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-bold text-slate-700">
+                        Đã trả: {formatVND(totalDebtPaid, isPrivacyMode)} / {formatVND(totalDebtOriginal, isPrivacyMode)}
+                      </span>
+                      <span className="hidden md:inline text-slate-300">•</span>
+                      <span className="hidden md:inline text-slate-500 text-[10.5px]">
+                        Hạ nhanh nợ gốc & tối ưu chi phí lãi vay
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cột phải: Thanh tiến độ + Chỉ số % */}
+                <div className="flex items-center space-x-3 sm:space-x-4 shrink-0 sm:w-72 justify-between sm:justify-end pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                  <div className="flex-1 min-w-[110px] max-w-[160px] sm:max-w-[180px]">
+                    <div className="flex items-center justify-between text-[9.5px] sm:text-[10px] text-slate-500 mb-1">
+                      <span className="font-medium text-slate-500">Tiến độ trả nợ</span>
+                      <span className="font-bold text-rose-600">{debtProgressPercent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200/80 rounded-full h-1.5 sm:h-2 overflow-hidden">
+                      <div
+                        className="bg-rose-500 h-full transition-all duration-500 rounded-full"
+                        style={{ width: `${debtProgressPercent}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="text-right min-w-[65px] sm:min-w-[80px] shrink-0">
+                    <div className="text-sm sm:text-base font-black text-rose-600 leading-tight">
+                      {debtProgressPercent}%
+                    </div>
+                    <div className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium leading-none mt-0.5">
+                      {selectedGroupFilter === 'debt' ? 'Đang chọn' : 'Nhấn để lọc'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Nhóm 2: Tích Sản Định Kỳ */}
+            <div
+              onClick={() => setSelectedGroupFilter(selectedGroupFilter === 'dca' ? 'all' : 'dca')}
+              className={`group p-2.5 sm:p-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
+                selectedGroupFilter === 'dca'
+                  ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-200 shadow-2xs'
+                  : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200/80 hover:border-slate-300'
+              }`}
+              title="Nhấn để lọc các mục tiêu thuộc Nhóm 2: Tích Sản Định Kỳ (DCA)"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+                {/* Cột trái */}
+                <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center shrink-0 shadow-2xs">
+                    <i className="fa-solid fa-coins text-amber-500 text-sm sm:text-base"></i>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                        Nhóm 2: Tích Sản Định Kỳ (DCA)
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9.5px] font-bold border bg-amber-100/70 text-amber-800 border-amber-200 shrink-0">
+                        Kỷ luật định kỳ
+                      </span>
+                      {selectedGroupFilter === 'dca' && (
+                        <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9px] font-bold bg-slate-900 text-white shrink-0">
+                          Đang lọc
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-slate-500 font-medium mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-bold text-slate-700">
+                        Theo dõi mua bù & nạp định kỳ (Cổ phiếu, Vàng, Tiết kiệm)
+                      </span>
+                      <span className="hidden md:inline text-slate-300">•</span>
+                      <span className="hidden md:inline text-slate-500 text-[10.5px]">
+                        {dcaCount} kế hoạch đang duy trì
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cột phải */}
+                <div className="flex items-center space-x-3 sm:space-x-4 shrink-0 sm:w-72 justify-between sm:justify-end pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                  <div className="flex-1 min-w-[110px] max-w-[160px] sm:max-w-[180px]">
+                    <div className="flex items-center justify-between text-[9.5px] sm:text-[10px] text-slate-500 mb-1">
+                      <span className="font-medium text-slate-500">Kế hoạch duy trì</span>
+                      <span className="font-bold text-emerald-600">{dcaCount ? '100%' : '0%'}</span>
+                    </div>
+                    <div className="w-full bg-slate-200/80 rounded-full h-1.5 sm:h-2 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-full transition-all duration-500 rounded-full"
+                        style={{ width: dcaCount ? '100%' : '0%' }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="text-right min-w-[65px] sm:min-w-[80px] shrink-0">
+                    <div className="text-sm sm:text-base font-black text-emerald-700 leading-tight">
+                      {dcaCount} Mục tiêu
+                    </div>
+                    <div className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium leading-none mt-0.5">
+                      {selectedGroupFilter === 'dca' ? 'Đang chọn' : 'Nhấn để lọc'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Nhóm 3: Dự Phòng (Runway) */}
+            <div
+              onClick={() => setSelectedGroupFilter(selectedGroupFilter === 'runway' ? 'all' : 'runway')}
+              className={`group p-2.5 sm:p-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
+                selectedGroupFilter === 'runway'
+                  ? 'bg-blue-50/70 border-blue-300 ring-1 ring-blue-200 shadow-2xs'
+                  : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200/80 hover:border-slate-300'
+              }`}
+              title="Nhấn để lọc các mục tiêu thuộc Nhóm 3: Quỹ Dự Phòng (Runway)"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+                {/* Cột trái */}
+                <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-blue-50 border border-blue-200/80 flex items-center justify-center shrink-0 shadow-2xs">
+                    <i className="fa-solid fa-shield-halved text-blue-600 text-sm sm:text-base"></i>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                        Nhóm 3: Quỹ Dự Phòng (Runway)
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9.5px] font-bold border shrink-0 ${
+                          Number(runwayMonths) >= 6
+                            ? 'bg-blue-100/70 text-blue-800 border-blue-200'
+                            : 'bg-amber-100/70 text-amber-800 border-amber-200'
+                        }`}
+                      >
+                        {Number(runwayMonths) >= 6 ? 'Đạt chuẩn an toàn' : 'Cần củng cố'}
+                      </span>
+                      {selectedGroupFilter === 'runway' && (
+                        <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9px] font-bold bg-slate-900 text-white shrink-0">
+                          Đang lọc
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-slate-500 font-medium mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-bold text-slate-700">
+                        Thanh khoản: {formatVND(liquidAssets, isPrivacyMode)}
+                      </span>
+                      <span className="hidden md:inline text-slate-300">•</span>
+                      <span className="hidden md:inline text-slate-500 text-[10.5px]">
+                        Chuẩn an toàn: ≥ 6 tháng chi trả nghĩa vụ
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cột phải */}
+                <div className="flex items-center space-x-3 sm:space-x-4 shrink-0 sm:w-72 justify-between sm:justify-end pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                  <div className="flex-1 min-w-[110px] max-w-[160px] sm:max-w-[180px]">
+                    <div className="flex items-center justify-between text-[9.5px] sm:text-[10px] text-slate-500 mb-1">
+                      <span className="font-medium text-slate-500">Mức độ đệm</span>
+                      <span className="font-bold text-blue-600">{runwayPercent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200/80 rounded-full h-1.5 sm:h-2 overflow-hidden">
+                      <div
+                        className="bg-blue-500 h-full transition-all duration-500 rounded-full"
+                        style={{ width: `${runwayPercent}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="text-right min-w-[65px] sm:min-w-[80px] shrink-0">
+                    <div className="text-sm sm:text-base font-black text-blue-700 leading-tight">
+                      {runwayMonths} tháng
+                    </div>
+                    <div className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium leading-none mt-0.5">
+                      {selectedGroupFilter === 'runway' ? 'Đang chọn' : 'Nhấn để lọc'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Nhóm 4: Quỹ Lớn / BĐS */}
+            <div
+              onClick={() => setSelectedGroupFilter(selectedGroupFilter === 'milestone' ? 'all' : 'milestone')}
+              className={`group p-2.5 sm:p-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
+                selectedGroupFilter === 'milestone'
+                  ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-200 shadow-2xs'
+                  : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200/80 hover:border-slate-300'
+              }`}
+              title="Nhấn để lọc các mục tiêu thuộc Nhóm 4: Cột Mốc Lớn / Quỹ BĐS / FIRE"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+                {/* Cột trái */}
+                <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center shrink-0 shadow-2xs">
+                    <i className="fa-solid fa-landmark text-emerald-600 text-sm sm:text-base"></i>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                        Nhóm 4: Cột Mốc Lớn / Quỹ BĐS / FIRE
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9.5px] font-bold border bg-emerald-100/70 text-emerald-800 border-emerald-200 shrink-0">
+                        Quy mô vốn lớn
+                      </span>
+                      {selectedGroupFilter === 'milestone' && (
+                        <span className="px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9px] font-bold bg-slate-900 text-white shrink-0">
+                          Đang lọc
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-slate-500 font-medium mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-bold text-slate-700">
+                        Mục tiêu: {formatVND(totalMilestoneTarget, isPrivacyMode)}
+                      </span>
+                      <span className="hidden md:inline text-slate-300">•</span>
+                      <span className="hidden md:inline text-slate-500 text-[10.5px]">
+                        Phân rã kế hoạch mua nhà, xe, vốn đầu tư dài hạn
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cột phải */}
+                <div className="flex items-center space-x-3 sm:space-x-4 shrink-0 sm:w-72 justify-between sm:justify-end pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                  <div className="flex-1 min-w-[110px] max-w-[160px] sm:max-w-[180px]">
+                    <div className="flex items-center justify-between text-[9.5px] sm:text-[10px] text-slate-500 mb-1">
+                      <span className="font-medium text-slate-500">Mức tích lũy</span>
+                      <span className="font-bold text-emerald-600">{milestoneProgressPercent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200/80 rounded-full h-1.5 sm:h-2 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-full transition-all duration-500 rounded-full"
+                        style={{ width: `${milestoneProgressPercent}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="text-right min-w-[65px] sm:min-w-[80px] shrink-0">
+                    <div className="text-sm sm:text-base font-black text-emerald-700 leading-tight">
+                      {milestoneProgressPercent}%
+                    </div>
+                    <div className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium leading-none mt-0.5">
+                      {selectedGroupFilter === 'milestone' ? 'Đang chọn' : 'Nhấn để lọc'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ACTION BUTTON & FILTERS */}

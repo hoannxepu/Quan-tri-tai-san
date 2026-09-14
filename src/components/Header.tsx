@@ -82,6 +82,27 @@ export const Header: React.FC<HeaderProps> = ({
     return typeof window !== 'undefined' && localStorage.getItem('thaptaisan_faceid_enabled') === '1';
   });
 
+  // Format account greeting display (e.g., "Xin chào 0966***")
+  const getGreetingText = (acc?: string) => {
+    if (!acc) return 'Xin chào 0966***';
+    const trimmed = acc.trim();
+    if (trimmed.includes('***')) {
+      return `Xin chào ${trimmed}`;
+    }
+    const digits = trimmed.replace(/\D/g, '');
+    if (digits.length >= 7) {
+      return `Xin chào ${digits.slice(0, 4)}***`;
+    }
+    if (trimmed.includes('@')) {
+      const [u] = trimmed.split('@');
+      return `Xin chào ${u.slice(0, 3)}***`;
+    }
+    if (trimmed.length > 4) {
+      return `Xin chào ${trimmed.slice(0, 4)}***`;
+    }
+    return `Xin chào ${trimmed}`;
+  };
+
   const handleToggleFaceId = () => {
     const next = !faceIdActive;
     setFaceIdActive(next);
@@ -128,7 +149,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Center: SUSTAINABLE WEALTH MOTTO (DESKTOP) & REAL-TIME DIGITAL CLOCK */}
-        <div className="flex items-center space-x-2 sm:space-x-3">
+        <div className="hidden md:flex items-center space-x-2 sm:space-x-3">
           {/* Professional Sustainable Finance Motto - Displayed on medium & desktop screens */}
           <div className="hidden lg:flex items-center space-x-2 px-3 py-1 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/80 rounded-xl shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -148,9 +169,9 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right Action Cluster: Single Compact Stacked Sync Button, Privacy Eye, 3-Line Menu */}
+        {/* Right Action Cluster: Single Compact Stacked Sync Button (Always Emerald Green), Privacy Eye, User Avatar + 3-Line Menu */}
         <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
-          {/* SINGLE PINNED COMPACT SYNC BUTTON (Đồng bộ ở trên, thời gian ở dưới) */}
+          {/* SINGLE PINNED COMPACT SYNC BUTTON (Luôn màu xanh lá tươi sáng, không bị tối đen) */}
           <button
             type="button"
             onClick={onSyncDrive}
@@ -158,9 +179,7 @@ export const Header: React.FC<HeaderProps> = ({
             className={`flex flex-col items-center justify-center px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl transition active:scale-95 cursor-pointer shadow-2xs shrink-0 border select-none ${
               cloudSyncStatus === 'syncing' || isSyncing
                 ? 'bg-blue-600 text-white border-blue-500 animate-pulse'
-                : cloudSyncStatus === 'synced'
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500/80'
-                : 'bg-slate-800 hover:bg-slate-900 text-white border-slate-700'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500/90'
             }`}
             title="Nhấn để đồng bộ dữ liệu ngay lập tức"
           >
@@ -170,12 +189,12 @@ export const Header: React.FC<HeaderProps> = ({
                   cloudSyncStatus === 'syncing' || isSyncing ? 'animate-spin' : ''
                 }`}
               />
-              <span className="text-[10px] sm:text-xs font-bold leading-tight">
+              <span className="text-[10px] sm:text-xs font-bold leading-tight whitespace-nowrap">
                 {cloudSyncStatus === 'syncing' || isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ'}
               </span>
             </div>
-            <span className="text-[8px] sm:text-[9px] text-emerald-100 font-mono leading-none mt-0.5 whitespace-nowrap">
-              {lastUpdate || 'Vừa cập nhật'}
+            <span className="text-[7.5px] sm:text-[9px] text-emerald-100 font-mono leading-none mt-0.5 whitespace-nowrap">
+              {lastUpdate ? (lastUpdate.includes(' - ') ? lastUpdate.split(' - ')[0] : lastUpdate) : 'Vừa cập nhật'}
             </span>
           </button>
 
@@ -192,22 +211,25 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* 3-Line Hamburger Menu Button (Thay thế ô cạnh nút thoát bằng 3 gạch, chứa toàn bộ thao tác & nút Thoát) */}
+          {/* 3-Line Hamburger Menu Button with Greeting (3 gạch + Xin chào 0966***) */}
           <div className="relative shrink-0" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center transition cursor-pointer shrink-0 border ${
+              className={`flex items-center space-x-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-xl transition cursor-pointer shrink-0 border select-none ${
                 showMenu
                   ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80'
               }`}
-              title="Menu thao tác & Thoát"
+              title="Tài khoản & Menu tùy chọn"
             >
               {showMenu ? (
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 shrink-0" />
               ) : (
-                <Menu className="w-4 h-4" />
+                <Menu className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-700 shrink-0" />
               )}
+              <span className="text-[10px] sm:text-xs font-bold text-slate-700 whitespace-nowrap">
+                {getGreetingText(userDisplay)}
+              </span>
             </button>
 
             {/* Hamburger Dropdown Action Menu */}
@@ -216,12 +238,12 @@ export const Header: React.FC<HeaderProps> = ({
                 {/* User Account Info Header */}
                 <div className="px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/50">
                   <div className="flex items-center space-x-2">
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center font-black text-xs shadow-xs shrink-0">
-                      {(userDisplay || 'U').charAt(0).toUpperCase()}
+                    <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs shrink-0">
+                      <Menu className="w-3.5 h-3.5 text-slate-600" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[10px] text-slate-400 font-medium">Tài khoản cá nhân:</div>
-                      <div className="font-bold text-slate-900 truncate text-xs">{userDisplay || 'Người dùng'}</div>
+                      <div className="text-[10px] text-slate-400 font-medium">Tài khoản đăng nhập:</div>
+                      <div className="font-bold text-slate-900 truncate text-xs">{getGreetingText(userDisplay)}</div>
                     </div>
                   </div>
                 </div>
