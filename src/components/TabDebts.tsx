@@ -1088,32 +1088,6 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
           )}
         </div>
 
-        {/* Biểu đồ dòng tiền */}
-        <div className="bg-slate-50/70 p-3 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-200/80 space-y-2 sm:space-y-3 mt-3 sm:mt-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-2 gap-1.5 sm:gap-2">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center">
-              <i className="fa-solid fa-chart-line text-blue-600 mr-1.5 sm:mr-2"></i>
-              <span>Biến Động 3 Dòng Tiền</span>
-            </h3>
-            <div className="flex items-center space-x-1 bg-white p-0.5 sm:p-1 rounded-lg text-[10px] sm:text-[11px] font-bold shadow-2xs">
-              {(['quarter', 'year', '3years', '5years'] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setCashflowRange(r)}
-                  className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded transition cursor-pointer ${
-                    cashflowRange === r ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600'
-                  }`}
-                >
-                  {r === 'quarter' ? 'Quý' : r === 'year' ? 'Năm' : r === '3years' ? '3 Năm' : '5 Năm'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="h-44 sm:h-72 bg-white p-2 sm:p-3 rounded-xl border border-slate-200">
-            <canvas ref={chartCanvasRef}></canvas>
-          </div>
-        </div>
-
       {/* Button Open Debt Form */}
       <div className="flex items-center justify-between">
         <button
@@ -1880,6 +1854,66 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* BIỂU ĐỒ BIẾN ĐỘNG 3 DÒNG TIỀN (KÉO XUỐNG DƯỚI CÙNG TAB 2) */}
+      <div className="bg-white p-3 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
+          <div>
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center">
+              <TrendingUp className="w-4 h-4 text-blue-600 mr-2 shrink-0" />
+              <span>Biểu Đồ Xu Hướng & Biến Động 3 Dòng Tiền</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              So sánh Tổng thu nhập, Nghĩa vụ chi trả nợ và Dòng tiền ròng khả dụng theo từng kỳ hạn
+            </p>
+          </div>
+          <div className="flex items-center space-x-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl text-[10px] sm:text-[11px] font-bold shadow-2xs">
+            {(['quarter', 'year', '3years', '5years'] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setCashflowRange(r)}
+                className={`px-2 sm:px-3 py-1 rounded-lg transition cursor-pointer text-[10px] sm:text-xs ${
+                  cashflowRange === r ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {r === 'quarter' ? 'Quý Này' : r === 'year' ? '1 Năm' : r === '3years' ? '3 Năm' : '5 Năm'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Chú thích màu trực quan */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-emerald-50/80 border border-emerald-200 rounded-lg text-xs">
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span className="font-semibold text-emerald-900">Tổng Thu Nhập:</span>
+            </div>
+            <span className="font-black text-emerald-700">{formatVND(totalMonthlyInflow, isPrivacyMode)}/th</span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 bg-rose-50/80 border border-rose-200 rounded-lg text-xs">
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0"></span>
+              <span className="font-semibold text-rose-900">Nghĩa Vụ Chi Trả:</span>
+            </div>
+            <span className="font-black text-rose-700">-{formatVND(totalMonthlyOutflow, isPrivacyMode)}/th</span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 bg-blue-50/80 border border-blue-200 rounded-lg text-xs">
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0"></span>
+              <span className="font-semibold text-blue-900">Dòng Tiền Ròng:</span>
+            </div>
+            <span className={`font-black ${netMonthlyCashflow >= 0 ? 'text-blue-700' : 'text-rose-600'}`}>
+              {netMonthlyCashflow >= 0 ? `+${formatVND(netMonthlyCashflow, isPrivacyMode)}` : formatVND(netMonthlyCashflow, isPrivacyMode)}/th
+            </span>
+          </div>
+        </div>
+
+        <div className="h-56 sm:h-72 bg-white pt-1">
+          <canvas ref={chartCanvasRef}></canvas>
+        </div>
       </div>
 
       {/* Vietnam Income Benchmark Modal */}

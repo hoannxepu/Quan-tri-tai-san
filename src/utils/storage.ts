@@ -254,13 +254,16 @@ export const DEFAULT_DATABASE_STATE: DatabaseState = {
 export async function loadCloudData(): Promise<{ passwords: Record<string, string>; users: Record<string, DatabaseState> } | null> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
     const res = await fetch(APPS_SCRIPT_URL, { signal: controller.signal });
     clearTimeout(timeoutId);
     const data = await res.json();
     if (data && typeof data === 'object') {
       if (!data.passwords) data.passwords = {};
       if (!data.users) data.users = {};
+      try {
+        localStorage.setItem('thaptaisan_cloud_cache', JSON.stringify(data));
+      } catch (e) {}
       return data;
     }
   } catch (err) {
@@ -271,6 +274,9 @@ export async function loadCloudData(): Promise<{ passwords: Record<string, strin
 
 export async function saveCloudData(payload: { passwords: Record<string, string>; users: Record<string, DatabaseState> }): Promise<boolean> {
   try {
+    try {
+      localStorage.setItem('thaptaisan_cloud_cache', JSON.stringify(payload));
+    } catch (e) {}
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     await fetch(APPS_SCRIPT_URL, {

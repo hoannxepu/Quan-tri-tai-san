@@ -97,17 +97,31 @@ export interface HistoryPoint {
   timestamp: number;
 }
 
+export interface CustomSmtpConfig {
+  host?: string;
+  port?: number;
+  user: string;
+  pass: string;
+  secure?: boolean;
+}
+
+export type ScheduleFrequency = 'weekly' | 'monthly' | '2months' | 'quarterly' | '6months' | 'yearly';
+
 export interface EmailScheduleSettings {
   enabled: boolean;
   email: string;
-  sendDay: number; // 1 - 31
-  sendHour: number; // 0 - 23
+  emails?: string[]; // Hỗ trợ nhiều địa chỉ email nhận cùng lúc
+  frequency?: ScheduleFrequency; // 'weekly' | 'monthly' | '2months' | 'quarterly' | '6months' | 'yearly'
+  sendWeekday?: number; // 0 = Chủ Nhật, 1 = Thứ Hai, ..., 6 = Thứ Bảy (khi frequency === 'weekly')
+  sendDay: number; // 1 - 31 (ngày gửi trong tháng)
+  sendHour: number; // 0 - 23 (giờ gửi)
   includeMonthlyGoals: boolean;
   includeNetWorthOverview: boolean;
   includeDebts: boolean;
   includeCashFlow: boolean;
   includeAssetPyramid: boolean;
   lastSentMonth?: string; // e.g. "2026-09"
+  lastSavedAt?: string; // e.g. "18:50 - 14/09/2026"
 }
 
 export interface DatabaseState {

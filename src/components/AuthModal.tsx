@@ -206,7 +206,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (accountToUnlock && savedP) {
         await onLogin(accountToUnlock, savedP, true);
       }
-    }, 450);
+    }, 260);
   };
 
   // Start Camera and Face ID Recognition Cycle

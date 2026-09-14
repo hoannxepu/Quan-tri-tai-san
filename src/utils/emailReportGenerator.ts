@@ -5,6 +5,9 @@ import { getVietnamWealthBenchmark } from './benchmarkUtils';
 export const DEFAULT_EMAIL_SCHEDULE: EmailScheduleSettings = {
   enabled: true,
   email: '',
+  emails: [],
+  frequency: 'monthly',
+  sendWeekday: 1, // Thứ Hai
   sendDay: 1, // Ngày 1 hàng tháng mặc định
   sendHour: 8, // 08:00 sáng
   includeMonthlyGoals: true,
@@ -14,19 +17,79 @@ export const DEFAULT_EMAIL_SCHEDULE: EmailScheduleSettings = {
   includeAssetPyramid: true,
 };
 
-export function getEmailScheduleSettings(db?: DatabaseState): EmailScheduleSettings {
-  if (db?.emailSchedule) {
-    return { ...DEFAULT_EMAIL_SCHEDULE, ...db.emailSchedule };
+export function formatScheduleLabel(settings: EmailScheduleSettings): string {
+  const hourStr = `${String(settings.sendHour).padStart(2, '0')}:00`;
+  const weekdays = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  const weekdayName = weekdays[settings.sendWeekday ?? 1] || 'Thứ Hai';
+  const freq = settings.frequency || 'monthly';
+
+  if (!settings.enabled) {
+    return 'Đang tắt tự động';
   }
-  try {
-    const saved = localStorage.getItem('thaptaisan_email_schedule');
-    if (saved) {
-      return { ...DEFAULT_EMAIL_SCHEDULE, ...JSON.parse(saved) };
+
+  switch (freq) {
+    case 'weekly':
+      return `Hàng tuần (${weekdayName}, lúc ${hourStr})`;
+    case '2months':
+      return `Định kỳ 2 tháng / lần (Ngày ${settings.sendDay}, lúc ${hourStr})`;
+    case 'quarterly':
+      return `Định kỳ 3 tháng / lần - Mỗi Quý (Ngày ${settings.sendDay}, lúc ${hourStr})`;
+    case '6months':
+      return `Định kỳ 6 tháng / lần - Nửa năm (Ngày ${settings.sendDay}, lúc ${hourStr})`;
+    case 'yearly':
+      return `Định kỳ hàng năm (Ngày ${settings.sendDay}, lúc ${hourStr})`;
+    case 'monthly':
+    default:
+      return `Hàng tháng (Ngày ${settings.sendDay}, lúc ${hourStr})`;
+  }
+}
+
+/**
+ * Phân tích và lọc danh sách các địa chỉ email hợp lệ từ chuỗi hoặc mảng.
+ * Hỗ trợ các ký tự ngăn cách: dấu phẩy (,), chấm phẩy (;), khoảng trắng, xuống dòng.
+ */
+export function parseEmailList(input?: string | string[] | null): string[] {
+  if (!input) return [];
+  const rawParts: string[] = Array.isArray(input)
+    ? input
+    : String(input).split(/[,;\n\r\t ]+/);
+
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  const validEmails: string[] = [];
+
+  for (const part of rawParts) {
+    const clean = part.trim().toLowerCase();
+    if (clean && emailRegex.test(clean)) {
+      if (!validEmails.includes(clean)) {
+        validEmails.push(clean);
+      }
     }
-  } catch (e) {
-    console.error('Error reading email schedule:', e);
   }
-  return DEFAULT_EMAIL_SCHEDULE;
+
+  return validEmails;
+}
+
+export function getEmailScheduleSettings(db?: DatabaseState): EmailScheduleSettings {
+  let loaded: EmailScheduleSettings = { ...DEFAULT_EMAIL_SCHEDULE };
+  if (db?.emailSchedule) {
+    loaded = { ...DEFAULT_EMAIL_SCHEDULE, ...db.emailSchedule };
+  } else {
+    try {
+      const saved = localStorage.getItem('thaptaisan_email_schedule');
+      if (saved) {
+        loaded = { ...DEFAULT_EMAIL_SCHEDULE, ...JSON.parse(saved) };
+      }
+    } catch (e) {
+      console.error('Error reading email schedule:', e);
+    }
+  }
+
+  // Chuẩn hóa danh sách emails
+  const parsed = parseEmailList(loaded.emails && loaded.emails.length > 0 ? loaded.emails : loaded.email);
+  loaded.emails = parsed;
+  loaded.email = parsed.join(', ');
+
+  return loaded;
 }
 
 export function saveEmailScheduleSettings(settings: EmailScheduleSettings) {
