@@ -114,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
                 v5.2
               </span>
             </div>
-            <span className="hidden md:block text-[10px] text-slate-500 font-medium truncate leading-none mt-0.5">
+            <span className="text-[8px] sm:text-[10px] text-slate-500 font-medium truncate leading-none mt-0.5 block">
               Hoạch Định & Quản Trị
             </span>
           </div>

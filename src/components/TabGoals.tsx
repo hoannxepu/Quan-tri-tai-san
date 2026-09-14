@@ -936,9 +936,48 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     <div className="space-y-3 sm:space-y-6">
       {/* 1. DEDICATED MOBILE VIEW (< md) - COMPACT GOALS CASHFLOW DASHBOARD */}
       <div className="md:hidden bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2.5">
-        {/* Row 1: 2 Mini Columns side-by-side (Thặng Dư T2 vs Cần Cho Mục Tiêu) */}
+        {/* Row 1: Đệm Dòng Tiền Tự Do Còn Lại Banner ĐƯỢC ĐẶT LÊN ĐẦU TIÊN */}
+        <div
+          className={`flex items-center justify-between rounded-lg px-2.5 py-2 border ${
+            remainingFreeBuffer >= 0
+              ? 'bg-blue-50/70 border-blue-200/80'
+              : 'bg-rose-50/70 border-rose-200/80'
+          }`}
+        >
+          <div className="min-w-0 flex-1 mr-2">
+            <span
+              className={`text-[9.5px] font-bold uppercase tracking-wide block truncate ${
+                remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
+              }`}
+            >
+              Dòng Tiền Tự Do Còn Lại
+            </span>
+            <span
+              className={`text-base font-black tracking-tight block truncate ${
+                remainingFreeBuffer >= 0 ? 'text-blue-700' : 'text-rose-600'
+              }`}
+            >
+              {isPrivacyMode
+                ? '•••••• ₫'
+                : remainingFreeBuffer >= 0
+                ? `+${formatVND(remainingFreeBuffer)}`
+                : `${formatVND(remainingFreeBuffer)}`}
+            </span>
+          </div>
+          <span
+            className={`px-2 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
+              remainingFreeBuffer >= 0
+                ? 'bg-blue-100 text-blue-800 border-blue-300'
+                : 'bg-rose-100 text-rose-800 border-rose-300'
+            }`}
+          >
+            {remainingFreeBuffer >= 0 ? '✓ An toàn' : '⚠️ Quá tải'}
+          </span>
+        </div>
+
+        {/* Row 2: 2 Mini Columns side-by-side (Thặng Dư Khả Dụng vs Nhu Cầu Mục Tiêu) */}
         <div className="grid grid-cols-2 gap-2 text-xs">
-          {/* Cột 1: Thặng Dư Tab 2 */}
+          {/* Cột 1: Thặng Dư Khả Dụng */}
           <div className="bg-emerald-50/70 border border-emerald-200/80 p-2 rounded-lg flex flex-col justify-between">
             <div>
               <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wide block truncate">
@@ -996,45 +1035,6 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Row 2: 3rd Item - Đệm Dòng Tiền Tự Do Còn Lại Banner (Placed in 3rd position, without /th) */}
-        <div
-          className={`flex items-center justify-between rounded-lg px-2.5 py-2 border ${
-            remainingFreeBuffer >= 0
-              ? 'bg-blue-50/70 border-blue-200/80'
-              : 'bg-rose-50/70 border-rose-200/80'
-          }`}
-        >
-          <div className="min-w-0 flex-1 mr-2">
-            <span
-              className={`text-[9.5px] font-bold uppercase tracking-wide block truncate ${
-                remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
-              }`}
-            >
-              Đệm Tiền Tự Do Còn Lại
-            </span>
-            <span
-              className={`text-base font-black tracking-tight block truncate ${
-                remainingFreeBuffer >= 0 ? 'text-blue-700' : 'text-rose-600'
-              }`}
-            >
-              {isPrivacyMode
-                ? '•••••• ₫'
-                : remainingFreeBuffer >= 0
-                ? `+${formatVND(remainingFreeBuffer)}`
-                : `${formatVND(remainingFreeBuffer)}`}
-            </span>
-          </div>
-          <span
-            className={`px-2 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
-              remainingFreeBuffer >= 0
-                ? 'bg-blue-100 text-blue-800 border-blue-300'
-                : 'bg-rose-100 text-rose-800 border-rose-300'
-            }`}
-          >
-            {remainingFreeBuffer >= 0 ? '✓ An toàn' : '⚠️ Quá tải'}
-          </span>
         </div>
 
         {/* Chú thích 4 trụ cột */}
@@ -1137,7 +1137,60 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 lg:gap-4">
-          {/* Ô 1: Dòng Tiền Thặng Dư Khả Dụng */}
+          {/* Ô 1: Dòng Tiền Tự Do Còn Lại (Đưa lên đầu) */}
+          <div
+            className={`p-4 rounded-xl border flex flex-col justify-between min-w-0 ${
+              remainingFreeBuffer >= 0
+                ? 'bg-blue-50/70 border-blue-200/80'
+                : 'bg-rose-50/70 border-rose-200/80'
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-1.5">
+                <span
+                  className={`text-xs font-bold uppercase tracking-wider block ${
+                    remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
+                  }`}
+                >
+                  Dòng Tiền Tự Do Còn Lại
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 ${
+                    remainingFreeBuffer >= 0
+                      ? 'bg-blue-100 text-blue-800 border-blue-300'
+                      : 'bg-rose-100 text-rose-800 border-rose-300'
+                  }`}
+                >
+                  {remainingFreeBuffer >= 0 ? '✓ Đệm an toàn' : '⚠️ Quá tải'}
+                </span>
+              </div>
+              <div
+                className={`text-xl lg:text-2xl font-black mt-1.5 leading-tight ${
+                  remainingFreeBuffer >= 0 ? 'text-blue-700' : 'text-rose-600'
+                }`}
+              >
+                {isPrivacyMode
+                  ? '•••••• ₫'
+                  : remainingFreeBuffer >= 0
+                  ? `+${formatVND(remainingFreeBuffer)}`
+                  : `${formatVND(remainingFreeBuffer)}`}
+              </div>
+            </div>
+
+            <div
+              className={`mt-2 pt-2 border-t text-[11px] font-medium ${
+                remainingFreeBuffer >= 0
+                  ? 'border-blue-200/60 text-blue-800/80'
+                  : 'border-rose-200/60 text-rose-800/80'
+              }`}
+            >
+              {remainingFreeBuffer >= 0
+                ? 'Đệm thanh khoản tự do sau khi trừ mọi khoản nợ & trích lập mục tiêu'
+                : 'Cảnh báo: Mục tiêu vượt quá thặng dư hàng tháng, cần giãn thời hạn!'}
+            </div>
+          </div>
+
+          {/* Ô 2: Dòng Tiền Thặng Dư Khả Dụng */}
           <div className="bg-emerald-50/70 border border-emerald-200/80 p-4 rounded-xl flex flex-col justify-between min-w-0">
             <div>
               <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">
@@ -1163,7 +1216,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             </div>
           </div>
 
-          {/* Ô 2: Ngân Sách Phân Bổ Cho Mục Tiêu */}
+          {/* Ô 3: Ngân Sách Phân Bổ Cho Mục Tiêu */}
           <div className="bg-amber-50/70 border border-amber-200/80 p-4 rounded-xl flex flex-col justify-between min-w-0">
             <div>
               <div className="flex items-center justify-between gap-1">
@@ -1199,59 +1252,6 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
               <div className="text-[10px] text-amber-800 font-semibold pt-0.5 border-t border-amber-100">
                 DCA + Quỹ cột mốc
               </div>
-            </div>
-          </div>
-
-          {/* Ô 3: Đệm Dòng Tiền Tự Do Còn Lại */}
-          <div
-            className={`p-4 rounded-xl border flex flex-col justify-between min-w-0 ${
-              remainingFreeBuffer >= 0
-                ? 'bg-blue-50/70 border-blue-200/80'
-                : 'bg-rose-50/70 border-rose-200/80'
-            }`}
-          >
-            <div>
-              <div className="flex items-center justify-between gap-1.5">
-                <span
-                  className={`text-xs font-bold uppercase tracking-wider block ${
-                    remainingFreeBuffer >= 0 ? 'text-blue-800' : 'text-rose-800'
-                  }`}
-                >
-                  Đệm Tiền Tự Do Còn Lại
-                </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 ${
-                    remainingFreeBuffer >= 0
-                      ? 'bg-blue-100 text-blue-800 border-blue-300'
-                      : 'bg-rose-100 text-rose-800 border-rose-300'
-                  }`}
-                >
-                  {remainingFreeBuffer >= 0 ? '✓ Đệm an toàn' : '⚠️ Quá tải'}
-                </span>
-              </div>
-              <div
-                className={`text-xl lg:text-2xl font-black mt-1.5 leading-tight ${
-                  remainingFreeBuffer >= 0 ? 'text-blue-700' : 'text-rose-600'
-                }`}
-              >
-                {isPrivacyMode
-                  ? '•••••• ₫'
-                  : remainingFreeBuffer >= 0
-                  ? `+${formatVND(remainingFreeBuffer)}`
-                  : `${formatVND(remainingFreeBuffer)}`}
-              </div>
-            </div>
-
-            <div
-              className={`mt-2 pt-2 border-t text-[11px] font-medium ${
-                remainingFreeBuffer >= 0
-                  ? 'border-blue-200/60 text-blue-800/80'
-                  : 'border-rose-200/60 text-rose-800/80'
-              }`}
-            >
-              {remainingFreeBuffer >= 0
-                ? 'Đệm thanh khoản dự phòng sau khi trích lập đủ các mục tiêu'
-                : 'Cảnh báo: Mục tiêu vượt quá thặng dư hàng tháng, cần giãn thời hạn!'}
             </div>
           </div>
         </div>
