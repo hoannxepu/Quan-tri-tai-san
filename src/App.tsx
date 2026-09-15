@@ -5,7 +5,7 @@ import {
   loadCloudData,
   saveCloudData,
 } from './utils/storage';
-import { normalizeAccountKey, hashString, getCurrentTimestampVN } from './utils/format';
+import { normalizeAccountKey, hashString, getCurrentTimestampVN, getDbTimestamp } from './utils/format';
 import { recordRegisteredAccount, getRegisteredAccountsList } from './utils/faceIdEngine';
 import { Header } from './components/Header';
 import { AuthModal } from './components/AuthModal';
@@ -20,6 +20,35 @@ import { SmartExcelModal } from './components/SmartExcelModal';
 import { exportAssetsToExcel } from './utils/excelEngine';
 import { EmailScheduleSettings } from './types';
 import { Lock, ScanFace, LogIn } from 'lucide-react';
+
+// Thuật toán đối soát dữ liệu đa thiết bị (Timestamp-based Conflict Resolution)
+function reconcileUserData(
+  cloudData?: DatabaseState | null,
+  localData?: DatabaseState | null
+): { data: DatabaseState; shouldUploadToCloud: boolean } {
+  if (!cloudData && !localData) {
+    return { data: DEFAULT_DATABASE_STATE, shouldUploadToCloud: false };
+  }
+  if (!cloudData && localData) {
+    return { data: localData, shouldUploadToCloud: true };
+  }
+  if (cloudData && !localData) {
+    return { data: cloudData, shouldUploadToCloud: false };
+  }
+  const cloudTime = getDbTimestamp(cloudData);
+  const localTime = getDbTimestamp(localData);
+
+  if (cloudTime > localTime) {
+    // Cloud mới hơn (do vừa chỉnh trên điện thoại/máy tính khác) -> Cập nhật Local theo Cloud
+    return { data: cloudData!, shouldUploadToCloud: false };
+  } else if (localTime > cloudTime) {
+    // Local mới hơn -> Giữ Local và cần đẩy lên Cloud
+    return { data: localData!, shouldUploadToCloud: true };
+  } else {
+    // Cùng thời gian -> Ưu tiên Cloud
+    return { data: cloudData!, shouldUploadToCloud: false };
+  }
+}
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'pyramid' | 'debts' | 'goals'>('pyramid');
@@ -55,12 +84,17 @@ export default function App() {
     return { passwords: {}, users: {} };
   });
 
-  // Refs for background debounce sync
+  // Refs for background debounce sync & lifecycle exit auto-save
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isBackgroundSavingRef = useRef<boolean>(false);
   const pendingDbRef = useRef<DatabaseState | null>(null);
   const currentAccountKeyRef = useRef<string>('');
   const cloudRootRef = useRef(cloudRoot);
+  const dbRef = useRef(db);
+
+  useEffect(() => {
+    dbRef.current = db;
+  }, [db]);
 
   useEffect(() => {
     currentAccountKeyRef.current = currentAccountKey;
@@ -69,6 +103,40 @@ export default function App() {
   useEffect(() => {
     cloudRootRef.current = cloudRoot;
   }, [cloudRoot]);
+
+  // Tự động đồng bộ ngầm khi thoát, ẩn tab, chuyển app trên điện thoại hoặc đóng trình duyệt
+  useEffect(() => {
+    const handleAutoSync = () => {
+      const targetKey = currentAccountKeyRef.current;
+      const currentDb = pendingDbRef.current || dbRef.current;
+      if (targetKey && currentDb && (currentDb.assets?.length > 0 || currentDb.debts?.length > 0 || currentDb.goals?.length > 0 || currentDb.salaryIncome > 0)) {
+        const updatedCloud = {
+          ...cloudRootRef.current,
+          users: {
+            ...cloudRootRef.current.users,
+            [targetKey]: currentDb,
+          },
+        };
+        saveCloudData(updatedCloud, true);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleAutoSync();
+      }
+    };
+
+    window.addEventListener('pagehide', handleAutoSync);
+    window.addEventListener('beforeunload', handleAutoSync);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', handleAutoSync);
+      window.removeEventListener('beforeunload', handleAutoSync);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // On App Mount: Always show login screen / Face ID lock so user explicitly clicks to unlock
   useEffect(() => {
@@ -112,7 +180,7 @@ export default function App() {
     }
   };
 
-  // Face ID Biometric Unlock Handler - MỞ KHÓA TỨC THÌ (< 0.05s)
+  // Face ID Biometric Unlock Handler - ĐỒNG BỘ 2 CHIỀU CHUẨN XÁC THEO THỜI GIAN
   const handleFaceIdUnlock = async (accountName?: string): Promise<boolean> => {
     const savedAccount =
       accountName ||
@@ -124,47 +192,63 @@ export default function App() {
     if (!savedAccount) return false;
 
     const accKey = normalizeAccountKey(savedAccount);
-    const localSaved = localStorage.getItem(`thaptaisan_local_${accKey}`);
-    let userData: DatabaseState = DEFAULT_DATABASE_STATE;
-
-    if (localSaved) {
+    const localSavedStr = localStorage.getItem(`thaptaisan_local_${accKey}`);
+    let localData: DatabaseState | null = null;
+    if (localSavedStr) {
       try {
-        userData = JSON.parse(localSaved);
+        localData = JSON.parse(localSavedStr);
       } catch (e) {
         console.error('Error parsing local cache for Face ID:', e);
       }
-    } else if (cloudRootRef.current.users?.[accKey]) {
-      userData = cloudRootRef.current.users[accKey];
     }
+    const cloudData = cloudRootRef.current.users?.[accKey];
+    const { data: bestData, shouldUploadToCloud } = reconcileUserData(cloudData, localData);
 
     localStorage.setItem('thaptaisan_saved_account', savedAccount);
     localStorage.setItem('thaptaisan_faceid_account', savedAccount);
     localStorage.setItem('thaptaisan_active_account', savedAccount);
+    localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(bestData));
     recordRegisteredAccount(savedAccount);
 
-    // 1. Vào App ngay lập tức, không chờ mạng
-    setupUserSession(savedAccount, accKey, userData);
+    // 1. Vào App ngay lập tức với bản dữ liệu tối ưu nhất
+    setupUserSession(savedAccount, accKey, bestData);
     setCurrentTab('pyramid');
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // 2. Chạy đồng bộ Google Drive ở chế độ nền (Background Sync)
+    // 2. Tải bản Cloud mới nhất từ Google Drive và đối soát lại
     setCloudSyncStatus('syncing');
     loadCloudData().then((fetched) => {
       if (fetched) {
         setCloudRoot(fetched);
-        if (fetched.users?.[accKey] && !localSaved) {
-          const cloudUserData = fetched.users[accKey];
+        const freshCloudUser = fetched.users?.[accKey];
+        const currentLocalStr = localStorage.getItem(`thaptaisan_local_${accKey}`);
+        const currentLocal = currentLocalStr ? JSON.parse(currentLocalStr) : bestData;
+        const reconciled = reconcileUserData(freshCloudUser, currentLocal);
+
+        if (reconciled.data !== currentLocal) {
           setDb({
             ...DEFAULT_DATABASE_STATE,
-            ...cloudUserData,
-            assets: cloudUserData.assets || [],
-            debts: cloudUserData.debts || [],
-            goals: cloudUserData.goals || [],
-            history: cloudUserData.history || [],
+            ...reconciled.data,
+            assets: reconciled.data.assets || [],
+            debts: reconciled.data.debts || [],
+            goals: reconciled.data.goals || [],
+            history: reconciled.data.history || [],
           });
-          localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(cloudUserData));
+          localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(reconciled.data));
         }
-        setCloudSyncStatus('synced');
+
+        if (reconciled.shouldUploadToCloud) {
+          const latestPayload = {
+            ...fetched,
+            users: {
+              ...fetched.users,
+              [accKey]: reconciled.data,
+            },
+          };
+          saveCloudData(latestPayload).then((ok) => setCloudSyncStatus(ok ? 'synced' : 'offline'));
+        } else {
+          setCloudSyncStatus('synced');
+        }
       } else {
         setCloudSyncStatus('offline');
       }
@@ -182,7 +266,7 @@ export default function App() {
     const hashed = await hashString(pass);
 
     // 1. Xác thực tức thì từ Local / RAM Cache (< 0.05s)
-    const localSaved = localStorage.getItem(`thaptaisan_local_${accKey}`);
+    const localSavedStr = localStorage.getItem(`thaptaisan_local_${accKey}`);
     const localPassHash = localStorage.getItem(`thaptaisan_pass_${accKey}`);
     const registeredList = getRegisteredAccountsList();
     const isKnownLocally = registeredList.some(
@@ -198,10 +282,16 @@ export default function App() {
         localStorage.getItem('thaptaisan_saved_pass') === pass);
 
     if (isMatch) {
-      const userData =
-        (localSaved ? JSON.parse(localSaved) : null) ||
-        currentMemoryCloud.users?.[accKey] ||
-        DEFAULT_DATABASE_STATE;
+      let localData: DatabaseState | null = null;
+      if (localSavedStr) {
+        try {
+          localData = JSON.parse(localSavedStr);
+        } catch (e) {}
+      }
+      const { data: userData, shouldUploadToCloud } = reconcileUserData(
+        currentMemoryCloud.users?.[accKey],
+        localData
+      );
 
       if (remember) {
         localStorage.setItem('thaptaisan_saved_account', rawAccount);
@@ -222,15 +312,39 @@ export default function App() {
       setCurrentTab('pyramid');
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
-      // Đồng bộ ngầm với Google Drive
+      // Đồng bộ ngầm với Google Drive và giải quyết xung đột
       setCloudSyncStatus('syncing');
       loadCloudData().then((fetched) => {
         if (fetched) {
           setCloudRoot(fetched);
-          setCloudSyncStatus('synced');
-          if (fetched.users?.[accKey] && !localSaved) {
-            setDb(fetched.users[accKey]);
-            localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(fetched.users[accKey]));
+          const freshCloudUser = fetched.users?.[accKey];
+          const currentLocalStr = localStorage.getItem(`thaptaisan_local_${accKey}`);
+          const currentLocal = currentLocalStr ? JSON.parse(currentLocalStr) : userData;
+          const reconciled = reconcileUserData(freshCloudUser, currentLocal);
+
+          if (reconciled.data !== currentLocal) {
+            setDb({
+              ...DEFAULT_DATABASE_STATE,
+              ...reconciled.data,
+              assets: reconciled.data.assets || [],
+              debts: reconciled.data.debts || [],
+              goals: reconciled.data.goals || [],
+              history: reconciled.data.history || [],
+            });
+            localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(reconciled.data));
+          }
+
+          if (reconciled.shouldUploadToCloud) {
+            const latestPayload = {
+              ...fetched,
+              users: {
+                ...fetched.users,
+                [accKey]: reconciled.data,
+              },
+            };
+            saveCloudData(latestPayload).then((ok) => setCloudSyncStatus(ok ? 'synced' : 'offline'));
+          } else {
+            setCloudSyncStatus('synced');
           }
         } else {
           setCloudSyncStatus('offline');
@@ -267,7 +381,7 @@ export default function App() {
     if (!latestCloud.users) latestCloud.users = {};
 
     // Nếu tài khoản không tồn tại ở cả cloud lẫn máy
-    if (!latestCloud.passwords[accKey] && !isKnownLocally && !localSaved) {
+    if (!latestCloud.passwords[accKey] && !isKnownLocally && !localSavedStr) {
       return {
         success: false,
         reason: 'Tài khoản chưa tồn tại trên hệ thống. Vui lòng chuyển sang tab Đăng Ký để tạo tài khoản và cài đặt Face ID!',
@@ -285,9 +399,13 @@ export default function App() {
       }
     }
 
-    const userData =
-      latestCloud.users[accKey] ||
-      (localSaved ? JSON.parse(localSaved) : DEFAULT_DATABASE_STATE);
+    let fallbackLocal: DatabaseState | null = null;
+    if (localSavedStr) {
+      try {
+        fallbackLocal = JSON.parse(localSavedStr);
+      } catch (e) {}
+    }
+    const { data: userData } = reconcileUserData(latestCloud.users[accKey], fallbackLocal);
 
     if (remember) {
       localStorage.setItem('thaptaisan_saved_account', rawAccount);
@@ -316,10 +434,12 @@ export default function App() {
   ): Promise<{ success: boolean; reason?: string }> => {
     const accKey = normalizeAccountKey(rawAccount);
     const hashed = await hashString(pass);
+    const now = Date.now();
 
     const initialUserData: DatabaseState = {
       ...DEFAULT_DATABASE_STATE,
       lastUpdate: getCurrentTimestampVN(),
+      updatedAtTimestamp: now,
     };
 
     // Lưu ngay cục bộ để vào App lập tức (< 0.05s)
@@ -359,7 +479,23 @@ export default function App() {
     return { success: true };
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Tự động đồng bộ dữ liệu mới nhất lên Cloud trước khi đăng xuất
+    const targetKey = currentAccountKeyRef.current;
+    const currentDb = pendingDbRef.current || dbRef.current;
+    if (targetKey && currentDb) {
+      setCloudSyncStatus('syncing');
+      const updatedCloud = {
+        ...cloudRootRef.current,
+        users: {
+          ...cloudRootRef.current.users,
+          [targetKey]: currentDb,
+        },
+      };
+      await saveCloudData(updatedCloud, true);
+      setCloudSyncStatus('synced');
+    }
+
     // Xóa phiên làm việc hiện tại
     localStorage.removeItem('thaptaisan_active_account');
     localStorage.removeItem('thaptaisan_saved_pass');
@@ -516,16 +652,67 @@ export default function App() {
   // Manual Explicit Google Drive Sync Action (Clickable from Header in any tab)
   const handleSyncDrive = async () => {
     setIsSyncing(true);
-    const newTimestamp = getCurrentTimestampVN();
-    const updatedDb = { ...db, lastUpdate: newTimestamp };
-    setDb(updatedDb);
-    triggerBackgroundSync(updatedDb, true);
-    setTimeout(() => {
+    setCloudSyncStatus('syncing');
+    const accKey = currentAccountKeyRef.current;
+    if (!accKey) {
       setIsSyncing(false);
-    }, 1000);
+      setCloudSyncStatus('synced');
+      return;
+    }
+
+    try {
+      const fetched = await loadCloudData();
+      if (fetched) {
+        setCloudRoot(fetched);
+        const cloudUserData = fetched.users?.[accKey];
+        const localSavedStr = localStorage.getItem(`thaptaisan_local_${accKey}`);
+        let localUserData: DatabaseState | null = null;
+        if (localSavedStr) {
+          try {
+            localUserData = JSON.parse(localSavedStr);
+          } catch (e) {}
+        }
+        if (!localUserData) localUserData = db;
+
+        const reconciled = reconcileUserData(cloudUserData, localUserData);
+
+        setDb({
+          ...DEFAULT_DATABASE_STATE,
+          ...reconciled.data,
+          assets: reconciled.data.assets || [],
+          debts: reconciled.data.debts || [],
+          goals: reconciled.data.goals || [],
+          history: reconciled.data.history || [],
+        });
+        localStorage.setItem(`thaptaisan_local_${accKey}`, JSON.stringify(reconciled.data));
+
+        if (reconciled.shouldUploadToCloud) {
+          const latestPayload = {
+            ...fetched,
+            users: {
+              ...fetched.users,
+              [accKey]: reconciled.data,
+            },
+          };
+          await saveCloudData(latestPayload);
+        }
+        setCloudSyncStatus('synced');
+      } else {
+        const newTimestamp = getCurrentTimestampVN();
+        const updatedDb = { ...db, lastUpdate: newTimestamp, updatedAtTimestamp: Date.now() };
+        setDb(updatedDb);
+        triggerBackgroundSync(updatedDb, true);
+      }
+    } catch (err) {
+      console.warn('Sync drive failed:', err);
+    } finally {
+      setTimeout(() => {
+        setIsSyncing(false);
+      }, 600);
+    }
   };
 
-  // State mutation actions (instant state update + silent async sync)
+  // State mutation actions (instant state update + silent async sync + timestamp tracking)
   const handleUpdateAsset = (asset: Asset) => {
     setDb((prev) => {
       const index = prev.assets.findIndex((a) => a.id === asset.id);
@@ -536,7 +723,13 @@ export default function App() {
       } else {
         newAssets = [...prev.assets, asset];
       }
-      const newDb = { ...prev, assets: newAssets, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        assets: newAssets,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -545,7 +738,13 @@ export default function App() {
   const handleRemoveAsset = (id: number) => {
     setDb((prev) => {
       const newAssets = prev.assets.filter((a) => a.id !== id);
-      const newDb = { ...prev, assets: newAssets, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        assets: newAssets,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -561,7 +760,13 @@ export default function App() {
       } else {
         newDebts = [...prev.debts, debt];
       }
-      const newDb = { ...prev, debts: newDebts, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        debts: newDebts,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -570,7 +775,13 @@ export default function App() {
   const handleRemoveDebt = (id: number) => {
     setDb((prev) => {
       const newDebts = prev.debts.filter((d) => d.id !== id);
-      const newDb = { ...prev, debts: newDebts, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        debts: newDebts,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -578,7 +789,14 @@ export default function App() {
 
   const handleUpdateIncome = (salary: number, other: number) => {
     setDb((prev) => {
-      const newDb = { ...prev, salaryIncome: salary, otherIncome: other, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        salaryIncome: salary,
+        otherIncome: other,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -594,7 +812,13 @@ export default function App() {
       } else {
         newGoals = [...prev.goals, goal];
       }
-      const newDb = { ...prev, goals: newGoals, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        goals: newGoals,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -603,7 +827,13 @@ export default function App() {
   const handleRemoveGoal = (id: number) => {
     setDb((prev) => {
       const newGoals = prev.goals.filter((g) => g.id !== id);
-      const newDb = { ...prev, goals: newGoals, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        goals: newGoals,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -687,6 +917,7 @@ export default function App() {
         updatedGoals = [...prev.goals, ...formattedNewGoals];
       }
 
+      const now = Date.now();
       const newDb: DatabaseState = {
         ...prev,
         assets: updatedAssets,
@@ -697,6 +928,7 @@ export default function App() {
         otherIncome:
           data.otherIncome !== undefined && data.otherIncome > 0 ? data.otherIncome : prev.otherIncome,
         lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
       };
       triggerBackgroundSync(newDb, true);
       return newDb;
@@ -705,7 +937,13 @@ export default function App() {
 
   const handleSaveEmailSchedule = (newSchedule: EmailScheduleSettings) => {
     setDb((prev) => {
-      const newDb = { ...prev, emailSchedule: newSchedule, lastUpdate: getCurrentTimestampVN() };
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        emailSchedule: newSchedule,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
       triggerBackgroundSync(newDb);
       return newDb;
     });
@@ -731,7 +969,16 @@ export default function App() {
         onSuccessRelogin={handleReloginAfterChangePass}
       />
 
-      {/* Modal Nhập Dữ Liệu Excel Thông Minh */}
+      {/* Modal Cài đặt Lịch Gửi Email Báo Cáo Tự Động */}
+      <EmailReportModal
+        isOpen={showEmailReportModal}
+        onClose={() => setShowEmailReportModal(false)}
+        db={db}
+        userDisplay={userDisplay}
+        onSaveSchedule={handleSaveEmailSchedule}
+      />
+
+      {/* Modal Trợ Lý Excel Thông Minh (AI Smart Excel) */}
       <SmartExcelModal
         isOpen={showSmartExcelModal}
         currentAssetsCount={db.assets.length}
@@ -739,15 +986,6 @@ export default function App() {
         currentGoalsCount={db.goals.length}
         onClose={() => setShowSmartExcelModal(false)}
         onImportData={handleImportDataFromExcel}
-      />
-
-      {/* Monthly Financial Email Report & Auto Reminder Modal */}
-      <EmailReportModal
-        isOpen={showEmailReportModal}
-        onClose={() => setShowEmailReportModal(false)}
-        db={db}
-        userDisplay={userDisplay}
-        onSaveSchedule={handleSaveEmailSchedule}
       />
 
       {/* When user closes modal without logging in: Show clean exit/locked screen */}
@@ -778,7 +1016,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Fixed Header Top Bar - ALWAYS Permanently Pinned at Top */}
+      {/* Header Sticky */}
       <header className="fixed top-0 left-0 right-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
           <Header
@@ -793,14 +1031,14 @@ export default function App() {
             cloudSyncStatus={cloudSyncStatus}
             onSyncDrive={handleSyncDrive}
             isSyncing={isSyncing}
-            lastUpdate={db.lastUpdate}
+            lastUpdate={db.lastUpdate || getCurrentTimestampVN()}
             onOpenEmailReport={() => setShowEmailReportModal(true)}
             onOpenChangePassword={() => setShowChangePasswordModal(true)}
           />
         </div>
       </header>
 
-      {/* Main Content Area - Responsive with top offset for fixed header */}
+      {/* Main Content Body */}
       <main className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 pt-[62px] sm:pt-22 pb-6">
         {currentTab === 'pyramid' && (
           <TabPyramid
@@ -836,7 +1074,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Fixed Bottom Navigation Bar - Easy to reach & clear */}
+      {/* Fixed Bottom Navigation (Mobile + Tablet + Desktop Dock) */}
       <FixedBottomNav
         currentTab={currentTab}
         onSwitchTab={(tab) => {

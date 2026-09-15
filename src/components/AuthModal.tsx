@@ -164,22 +164,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
     setSuccessMsg('');
 
-    // 1. Nếu là thiết bị máy tính: Hiển thị hộp thoại thông báo máy tính không hỗ trợ
+    // 1. Nếu là thiết bị máy tính không có phần cứng sinh trắc học
     if (isDesktopDevice()) {
       setShowDesktopNoticeModal(true);
       return;
     }
 
-    // 2. Trên điện thoại / máy tính bảng: Tự động chạy đăng nhập ngay mà không hiện hộp thoại hỏi han hay mã khóa
+    // 2. Trên điện thoại / máy tính bảng:
     const targetAccount = (overrideAccount || account.trim() || currentAcc || localStorage.getItem('thaptaisan_saved_account') || '').trim();
     if (!targetAccount) {
-      setError('Vui lòng nhập Số điện thoại hoặc Gmail tài khoản trước khi xác thực Face ID!');
+      setError('Vui lòng nhập Số điện thoại hoặc Gmail tài khoản trước khi quét Face ID!');
       return;
     }
 
     setLoading(true);
-    setSuccessMsg('✓ Đang xác thực Face ID / Vân tay...');
+    setSuccessMsg('Đang kích hoạt Face ID / Cảm biến hồng ngoại...');
     try {
+      // 1. Gọi xác thực phần cứng thật qua WebAuthn API
+      const authRes = await authenticatePlatformBiometric(targetAccount);
+      if (!authRes.success) {
+        // KHÔNG BYPASS: Báo lỗi chính xác và yêu cầu người dùng xác thực lại hoặc nhập mật khẩu
+        setError(authRes.error || 'Xác thực Face ID không thành công. Vui lòng thử lại hoặc đăng nhập bằng Mật khẩu.');
+        setLoading(false);
+        return;
+      }
+
+      // 2. Xác thực phần cứng thành công -> Mở khóa phiên làm việc
+      setSuccessMsg('✓ Xác thực Face ID thành công!');
       if (onFaceIdUnlock) {
         const ok = await onFaceIdUnlock(targetAccount);
         if (ok) {
@@ -195,7 +206,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return;
       }
 
-      setError('Chưa có dữ liệu sinh trắc học đã lưu trên thiết bị. Vui lòng đăng nhập mật khẩu lần đầu.');
+      setError('Xác thực Face ID thành công nhưng chưa tìm thấy phiên lưu. Vui lòng đăng nhập mật khẩu lần đầu.');
     } catch (err: any) {
       setError(err?.message || 'Không thể xác thực sinh trắc học.');
     } finally {
@@ -232,7 +243,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     setLoading(true);
+    setSuccessMsg('Đang kích hoạt cảm biến Face ID / Vân tay của thiết bị...');
     try {
+      // 1. Tạo và đăng ký khóa sinh trắc học phần cứng WebAuthn
+      const bioReg = await registerPlatformBiometric(cleanAccount);
+      if (!bioReg.success) {
+        setError(bioReg.error || 'Không thể kích hoạt Face ID phần cứng của thiết bị.');
+        setLoading(false);
+        return;
+      }
+
+      // 2. Tạo tài khoản trong hệ thống
       if (onRegister) {
         const regRes = await onRegister(cleanAccount, regPass, true);
         const isSuccess = typeof regRes === 'boolean' ? regRes : regRes.success;
@@ -251,6 +272,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMsg('✓ Đăng ký & Kích hoạt Face ID / Vân tay thành công!');
       setTimeout(async () => {
         await onLogin(cleanAccount, regPass, true);
+        if (onClose) setTimeout(onClose, 200);
       }, 300);
     } catch (err: any) {
       setError(err?.message || 'Lỗi khi kích hoạt sinh trắc học');

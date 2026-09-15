@@ -38,6 +38,34 @@ export function getCurrentTimestampVN(): string {
   return `${timeStr} - ${dateStr}`;
 }
 
+export function getDbTimestamp(d?: DatabaseState | null): number {
+  if (!d) return 0;
+  if (typeof d.updatedAtTimestamp === 'number' && d.updatedAtTimestamp > 0) {
+    return d.updatedAtTimestamp;
+  }
+  if (d.lastUpdate) {
+    const parts = d.lastUpdate.split(' - ');
+    if (parts.length === 2) {
+      const [timePart, datePart] = parts;
+      const timeSegments = timePart.split(':').map((x) => parseInt(x, 10) || 0);
+      const dateSegments = datePart.split('/').map((x) => parseInt(x, 10) || 0);
+      const hh = timeSegments[0] || 0;
+      const mm = timeSegments[1] || 0;
+      const ss = timeSegments[2] || 0;
+      const day = dateSegments[0] || 0;
+      const month = dateSegments[1] || 0;
+      const year = dateSegments[2] || 0;
+      if (year && month && day) {
+        const parsed = new Date(year, month - 1, day, hh, mm, ss).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+    const dObj = new Date(d.lastUpdate);
+    if (!isNaN(dObj.getTime())) return dObj.getTime();
+  }
+  return 0;
+}
+
 // Hàm tính ngày đáo hạn theo chuẩn tháng dương lịch ngân hàng (không bị trôi ngày do độ dài tháng)
 export function getCalendarMaturityDateObj(startDateStr?: string, months?: number): { year: number; month: number; day: number } | null {
   if (!startDateStr || !months) return null;

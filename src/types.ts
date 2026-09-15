@@ -132,6 +132,7 @@ export interface DatabaseState {
   salaryIncome: number;
   otherIncome: number;
   lastUpdate: string;
+  updatedAtTimestamp?: number;
   emailSchedule?: EmailScheduleSettings;
 }
 

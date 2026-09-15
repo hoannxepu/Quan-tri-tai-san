@@ -254,8 +254,13 @@ export const DEFAULT_DATABASE_STATE: DatabaseState = {
 export async function loadCloudData(): Promise<{ passwords: Record<string, string>; users: Record<string, DatabaseState> } | null> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch(APPS_SCRIPT_URL, { signal: controller.signal });
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    // Thêm tham số timestamp để tránh cache HTTP trên trình duyệt / proxy
+    const cacheBusterUrl = `${APPS_SCRIPT_URL}${APPS_SCRIPT_URL.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    const res = await fetch(cacheBusterUrl, {
+      signal: controller.signal,
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
+    });
     clearTimeout(timeoutId);
     const data = await res.json();
     if (data && typeof data === 'object') {
@@ -272,18 +277,43 @@ export async function loadCloudData(): Promise<{ passwords: Record<string, strin
   return null;
 }
 
-export async function saveCloudData(payload: { passwords: Record<string, string>; users: Record<string, DatabaseState> }): Promise<boolean> {
+export async function saveCloudData(
+  payload: { passwords: Record<string, string>; users: Record<string, DatabaseState> },
+  useKeepAlive: boolean = false
+): Promise<boolean> {
   try {
     try {
       localStorage.setItem('thaptaisan_cloud_cache', JSON.stringify(payload));
     } catch (e) {}
+
+    const payloadString = JSON.stringify(payload);
+
+    // Khi người dùng tắt web, chuyển app hoặc đăng xuất -> Dùng sendBeacon / keepalive để đảm bảo dữ liệu gửi trọn vẹn
+    if (useKeepAlive) {
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([payloadString], { type: 'text/plain;charset=utf-8' });
+        const sent = navigator.sendBeacon(APPS_SCRIPT_URL, blob);
+        if (sent) return true;
+      }
+
+      fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        keepalive: true,
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: payloadString,
+      }).catch((e) => console.warn('Keepalive sync error:', e));
+
+      return true;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: payloadString,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
