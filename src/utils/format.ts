@@ -38,23 +38,52 @@ export function getCurrentTimestampVN(): string {
   return `${timeStr} - ${dateStr}`;
 }
 
+// Hàm tính ngày đáo hạn theo chuẩn tháng dương lịch ngân hàng (không bị trôi ngày do độ dài tháng)
+export function getCalendarMaturityDateObj(startDateStr?: string, months?: number): { year: number; month: number; day: number } | null {
+  if (!startDateStr || !months) return null;
+  // Parse YYYY-MM-DD or valid date string
+  const parts = startDateStr.split('-');
+  let startYear = 0;
+  let startMonth = 0;
+  let startDay = 0;
+
+  if (parts.length === 3) {
+    startYear = parseInt(parts[0], 10);
+    startMonth = parseInt(parts[1], 10); // 1-12
+    startDay = parseInt(parts[2], 10);
+  } else {
+    const d = new Date(startDateStr);
+    if (isNaN(d.getTime())) return null;
+    startYear = d.getFullYear();
+    startMonth = d.getMonth() + 1;
+    startDay = d.getDate();
+  }
+
+  if (!startYear || !startMonth || !startDay) return null;
+
+  const totalMonths = (startYear * 12) + (startMonth - 1) + Number(months);
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonth = (totalMonths % 12) + 1; // 1-12
+
+  // Số ngày tối đa của tháng đáo hạn
+  const maxDaysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+  const targetDay = Math.min(startDay, maxDaysInTargetMonth);
+
+  return { year: targetYear, month: targetMonth, day: targetDay };
+}
+
 export function calculateMaturityDate(startDateStr?: string, months?: number): string {
-  if (!startDateStr || !months) return '';
-  const d = new Date(startDateStr);
-  if (isNaN(d.getTime())) return '';
-  d.setMonth(d.getMonth() + Number(months));
-  return d.toLocaleDateString('vi-VN');
+  const result = getCalendarMaturityDateObj(startDateStr, months);
+  if (!result) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(result.day)}/${pad(result.month)}/${result.year}`;
 }
 
 export function calculateMaturityDateISO(startDateStr?: string, months?: number): string {
-  if (!startDateStr || !months) return '';
-  const d = new Date(startDateStr);
-  if (isNaN(d.getTime())) return '';
-  d.setMonth(d.getMonth() + Number(months));
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const result = getCalendarMaturityDateObj(startDateStr, months);
+  if (!result) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${result.year}-${pad(result.month)}-${pad(result.day)}`;
 }
 
 export function calculateDCADaysRemaining(targetDay: number = 10, freqMonths: number = 1): { diffDays: number; nextDueDateStr: string } {

@@ -15,6 +15,9 @@ import { TabDebts } from './components/TabDebts';
 import { TabGoals } from './components/TabGoals';
 import { PyramidLogo } from './components/PyramidLogo';
 import { EmailReportModal } from './components/EmailReportModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { SmartExcelModal } from './components/SmartExcelModal';
+import { exportAssetsToExcel } from './utils/excelEngine';
 import { EmailScheduleSettings } from './types';
 import { Lock, ScanFace, LogIn } from 'lucide-react';
 
@@ -29,6 +32,8 @@ export default function App() {
   const [userDisplay, setUserDisplay] = useState<string>('');
   const [showAuthModal, setShowAuthModal] = useState<boolean>(true);
   const [showEmailReportModal, setShowEmailReportModal] = useState<boolean>(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
+  const [showSmartExcelModal, setShowSmartExcelModal] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
 
@@ -355,10 +360,87 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    if (confirm('Bạn có muốn đăng xuất khỏi tài khoản hiện tại?')) {
-      setShowAuthModal(true);
-      setUserDisplay('');
+    // Xóa phiên làm việc hiện tại
+    localStorage.removeItem('thaptaisan_active_account');
+    localStorage.removeItem('thaptaisan_saved_pass');
+    setUserDisplay('');
+    setCurrentAccountKey('');
+    currentAccountKeyRef.current = '';
+    // Đưa giao diện về trạng thái mặc định sạch để bảo vệ tính riêng tư
+    setDb(DEFAULT_DATABASE_STATE);
+    // Mở màn hình đăng nhập
+    setShowAuthModal(true);
+  };
+
+  // Đổi mật khẩu từ bên ngoài (khi chưa đăng nhập / quên mật khẩu)
+  const handleResetPassword = async (
+    rawAccount: string,
+    newPass: string
+  ): Promise<{ success: boolean; reason?: string }> => {
+    const accKey = normalizeAccountKey(rawAccount);
+    const hashed = await hashString(newPass);
+
+    // Cập nhật pass hash local
+    localStorage.setItem(`thaptaisan_pass_${accKey}`, hashed);
+    localStorage.setItem('thaptaisan_saved_account', rawAccount);
+    localStorage.removeItem('thaptaisan_saved_pass');
+    recordRegisteredAccount(rawAccount);
+
+    // Cập nhật cloud root
+    setCloudSyncStatus('syncing');
+    const latest = cloudRootRef.current || { passwords: {}, users: {} };
+    if (!latest.passwords) latest.passwords = {};
+    latest.passwords[accKey] = hashed;
+    setCloudRoot(latest);
+    saveCloudData(latest).then((ok) => {
+      setCloudSyncStatus(ok ? 'synced' : 'offline');
+    });
+
+    return { success: true };
+  };
+
+  // Đổi mật khẩu từ bên trong ứng dụng (khi đã đăng nhập)
+  const handleChangePasswordInside = async (
+    oldPass: string,
+    newPass: string
+  ): Promise<{ success: boolean; reason?: string }> => {
+    const rawAccount = userDisplay || localStorage.getItem('thaptaisan_active_account') || '';
+    if (!rawAccount) {
+      return { success: false, reason: 'Chưa xác định được tài khoản đang đăng nhập' };
     }
+    const accKey = normalizeAccountKey(rawAccount);
+    const oldHashed = await hashString(oldPass);
+
+    // Kiểm tra mật khẩu cũ
+    const localPassHash = localStorage.getItem(`thaptaisan_pass_${accKey}`);
+    const cloudPassHash = cloudRootRef.current?.passwords?.[accKey];
+    const savedPass = localStorage.getItem('thaptaisan_saved_pass');
+
+    const isOldCorrect =
+      (localPassHash && (localPassHash === oldHashed || localPassHash === oldPass)) ||
+      (cloudPassHash && (cloudPassHash === oldHashed || cloudPassHash === oldPass)) ||
+      (savedPass && savedPass === oldPass);
+
+    if (!isOldCorrect) {
+      return { success: false, reason: 'Mật khẩu hiện tại không chính xác!' };
+    }
+
+    const newHashed = await hashString(newPass);
+    localStorage.setItem(`thaptaisan_pass_${accKey}`, newHashed);
+    localStorage.setItem('thaptaisan_saved_account', rawAccount);
+    localStorage.removeItem('thaptaisan_saved_pass');
+
+    // Đồng bộ lên cloud ngầm
+    setCloudSyncStatus('syncing');
+    const latest = cloudRootRef.current || { passwords: {}, users: {} };
+    if (!latest.passwords) latest.passwords = {};
+    latest.passwords[accKey] = newHashed;
+    setCloudRoot(latest);
+    saveCloudData(latest).then((ok) => {
+      setCloudSyncStatus(ok ? 'synced' : 'offline');
+    });
+
+    return { success: true };
   };
 
   const handleTogglePrivacy = () => {
@@ -527,38 +609,50 @@ export default function App() {
     });
   };
 
-  const handleExportJSON = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(db, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute(
-      'download',
-      `ThapTaiSan_Backup_${userDisplay || 'User'}_${new Date().toISOString().split('T')[0]}.json`
-    );
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+  const handleReloginAfterChangePass = () => {
+    setShowChangePasswordModal(false);
+    handleLogout();
   };
 
-  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleExportExcel = () => {
+    exportAssetsToExcel(db.assets, userDisplay);
+  };
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed && typeof parsed === 'object') {
-          const newDb = { ...db, ...parsed };
-          setDb(newDb);
-          triggerBackgroundSync(newDb, true);
-          alert('✓ Đã khôi phục dữ liệu tức thì và đang đồng bộ ngầm lên Google Drive!');
-        }
-      } catch (err) {
-        alert('Lỗi: Định dạng file JSON không hợp lệ!');
+  const handleImportAssetsFromExcel = (
+    newItems: Omit<Asset, 'id'>[],
+    mode: 'append' | 'replace'
+  ) => {
+    setDb((prev) => {
+      let updatedAssets: Asset[];
+      if (mode === 'replace') {
+        updatedAssets = newItems.map((item, idx) => ({
+          ...item,
+          id: Date.now() + idx,
+        }));
+      } else {
+        const existingIds = new Set(prev.assets.map((a) => a.id));
+        let nextId = Date.now();
+        const formattedNew: Asset[] = newItems.map((item) => {
+          while (existingIds.has(nextId)) {
+            nextId++;
+          }
+          existingIds.add(nextId);
+          return {
+            ...item,
+            id: nextId,
+          };
+        });
+        updatedAssets = [...prev.assets, ...formattedNew];
       }
-    };
-    reader.readAsText(file);
+
+      const newDb: DatabaseState = {
+        ...prev,
+        assets: updatedAssets,
+        lastUpdate: getCurrentTimestampVN(),
+      };
+      triggerBackgroundSync(newDb, true);
+      return newDb;
+    });
   };
 
   const handleSaveEmailSchedule = (newSchedule: EmailScheduleSettings) => {
@@ -575,8 +669,26 @@ export default function App() {
         isOpen={showAuthModal}
         onLogin={handleLogin}
         onRegister={handleRegister}
+        onResetPassword={handleResetPassword}
         onFaceIdUnlock={handleFaceIdUnlock}
-        onClose={() => setShowAuthModal(false)}
+        onClose={userDisplay ? () => setShowAuthModal(false) : undefined}
+      />
+
+      {/* Modal Đổi mật khẩu bên trong ứng dụng */}
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        accountName={userDisplay}
+        onClose={() => setShowChangePasswordModal(false)}
+        onChangePassword={handleChangePasswordInside}
+        onSuccessRelogin={handleReloginAfterChangePass}
+      />
+
+      {/* Modal Nhập Dữ Liệu Excel Thông Minh */}
+      <SmartExcelModal
+        isOpen={showSmartExcelModal}
+        currentAssetsCount={db.assets.length}
+        onClose={() => setShowSmartExcelModal(false)}
+        onImportAssets={handleImportAssetsFromExcel}
       />
 
       {/* Monthly Financial Email Report & Auto Reminder Modal */}
@@ -625,14 +737,15 @@ export default function App() {
             isPrivacyMode={isPrivacyMode}
             onTogglePrivacy={handleTogglePrivacy}
             userDisplay={userDisplay}
-            onExportJSON={handleExportJSON}
-            onImportJSON={handleImportJSON}
+            onOpenImportExcel={() => setShowSmartExcelModal(true)}
+            onExportExcel={handleExportExcel}
             onLogout={handleLogout}
             cloudSyncStatus={cloudSyncStatus}
             onSyncDrive={handleSyncDrive}
             isSyncing={isSyncing}
             lastUpdate={db.lastUpdate}
             onOpenEmailReport={() => setShowEmailReportModal(true)}
+            onOpenChangePassword={() => setShowChangePasswordModal(true)}
           />
         </div>
       </header>

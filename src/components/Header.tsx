@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Download,
-  Upload,
   Eye,
   EyeOff,
   RotateCw,
@@ -15,6 +14,8 @@ import {
   Sparkles,
   TrendingUp,
   Mail,
+  KeyRound,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { PyramidLogo } from './PyramidLogo';
 
@@ -24,14 +25,15 @@ interface HeaderProps {
   isPrivacyMode: boolean;
   onTogglePrivacy: () => void;
   userDisplay: string;
-  onExportJSON: () => void;
-  onImportJSON: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onOpenImportExcel: () => void;
+  onExportExcel: () => void;
   onLogout: () => void;
   cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
   onSyncDrive?: () => void;
   isSyncing?: boolean;
   lastUpdate?: string;
   onOpenEmailReport?: () => void;
+  onOpenChangePassword?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,14 +42,15 @@ export const Header: React.FC<HeaderProps> = ({
   isPrivacyMode,
   onTogglePrivacy,
   userDisplay,
-  onExportJSON,
-  onImportJSON,
+  onOpenImportExcel,
+  onExportExcel,
   onLogout,
   cloudSyncStatus = 'synced',
   onSyncDrive,
   isSyncing = false,
   lastUpdate,
   onOpenEmailReport,
+  onOpenChangePassword,
 }) => {
   const [showMenu, setShowMenu] = useState<boolean>(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -280,32 +283,45 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 </div>
 
-                {/* Backup & Restore Action Buttons */}
-                <div className="py-1">
+                {/* Change Password Button (Đổi mật khẩu tài khoản bên trong) */}
+                {onOpenChangePassword && (
+                  <div className="border-b border-slate-100 py-0.5">
+                    <button
+                      onClick={() => {
+                        setShowMenu(false);
+                        onOpenChangePassword();
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-amber-50/70 flex items-center space-x-2 text-slate-700 hover:text-amber-800 transition cursor-pointer"
+                    >
+                      <KeyRound className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="font-semibold text-xs">Đổi mật khẩu tài khoản</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Excel Import & Export Action Buttons */}
+                <div className="py-1 border-b border-slate-100 space-y-0.5">
                   <button
                     onClick={() => {
                       setShowMenu(false);
-                      onExportJSON();
+                      onOpenImportExcel();
                     }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center space-x-2 text-slate-700 cursor-pointer"
+                    className="w-full text-left px-3.5 py-2 hover:bg-emerald-50/70 flex items-center space-x-2 text-slate-700 hover:text-emerald-800 transition cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Sao lưu file JSON về máy</span>
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="font-semibold text-xs">Nhập dữ liệu từ Excel</span>
                   </button>
 
-                  <label className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center space-x-2 text-slate-700 cursor-pointer">
-                    <Upload className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Phục hồi dữ liệu từ file JSON</span>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={(e) => {
-                        setShowMenu(false);
-                        onImportJSON(e);
-                      }}
-                      className="hidden"
-                    />
-                  </label>
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      onExportExcel();
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-emerald-50/70 flex items-center space-x-2 text-slate-700 hover:text-emerald-800 transition cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="font-semibold text-xs">Xuất toàn bộ danh mục ra Excel</span>
+                  </button>
                 </div>
 
                 {/* Log Out Button (Đưa phần Thoát vào bên trong Menu 3 gạch) */}

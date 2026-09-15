@@ -13,6 +13,8 @@
  * 5. Environment & Illumination Quality Checks (Low light / glare / occlusion)
  */
 
+import { normalizeAccountKey } from './format';
+
 export interface FaceLandmarkPoint {
   x: number;
   y: number;
@@ -896,3 +898,136 @@ export function verifyFaceDescriptor(
       : `Khuôn mặt không khớp với chủ tài khoản (Độ tương đồng: ${(similarity * 100).toFixed(1)}% < ${(threshold * 100).toFixed(0)}%)`,
   };
 }
+
+/**
+ * NATIVE PLATFORM BIOMETRICS (WebAuthn / Passkeys)
+ * Sử dụng trực tiếp phần cứng sinh trắc học của thiết bị (Face ID hồng ngoại trên iPhone,
+ * Vân tay/Khuôn mặt trên Android qua BiometricPrompt, Touch ID trên Mac, Windows Hello).
+ * Hoạt động 100% chính xác trong bóng tối hoàn toàn vì dùng cảm biến hồng ngoại phần cứng của máy!
+ */
+export async function isPlatformBiometricAvailable(): Promise<boolean> {
+  if (
+    typeof window !== 'undefined' &&
+    window.PublicKeyCredential &&
+    typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function'
+  ) {
+    try {
+      return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export function hasPlatformBiometricEnrolled(accountKey: string): boolean {
+  try {
+    return !!localStorage.getItem(`thaptaisan_webauthn_${accountKey}`);
+  } catch {
+    return false;
+  }
+}
+
+export function deletePlatformBiometric(accountKey: string): void {
+  try {
+    localStorage.removeItem(`thaptaisan_webauthn_${accountKey}`);
+  } catch {}
+}
+
+export async function registerPlatformBiometric(
+  accountName: string
+): Promise<{ success: boolean; credentialId?: string; error?: string }> {
+  try {
+    if (!window.PublicKeyCredential) {
+      return { success: false, error: 'Thiết bị/trình duyệt không hỗ trợ chuẩn WebAuthn.' };
+    }
+    const challenge = new Uint8Array(32);
+    window.crypto.getRandomValues(challenge);
+    const userId = new TextEncoder().encode(accountName || 'thaptaisan_user');
+
+    const credential = (await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: {
+          name: 'Tháp Tài Sản',
+          id: window.location.hostname || undefined,
+        },
+        user: {
+          id: userId,
+          name: accountName,
+          displayName: accountName,
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },   // ES256
+          { alg: -257, type: 'public-key' }, // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform', // Phần cứng Face ID / Vân tay của máy
+          userVerification: 'required',
+          residentKey: 'preferred',
+        },
+        timeout: 60000,
+        attestation: 'none',
+      },
+    })) as PublicKeyCredential | null;
+
+    if (credential) {
+      const rawId = credential.rawId;
+      const idBase64 = btoa(String.fromCharCode(...new Uint8Array(rawId)));
+      const normKey = normalizeAccountKey(accountName);
+      localStorage.setItem(`thaptaisan_webauthn_${normKey}`, idBase64);
+      return { success: true, credentialId: idBase64 };
+    }
+    return { success: false, error: 'Không thể kích hoạt Face ID / Vân tay của thiết bị.' };
+  } catch (err: any) {
+    if (err.name === 'NotAllowedError') {
+      return { success: false, error: 'Đã hủy hoặc từ chối xác thực sinh trắc học của thiết bị.' };
+    }
+    return { success: false, error: err?.message || 'Không thể thiết lập Face ID / Vân tay máy' };
+  }
+}
+
+export async function authenticatePlatformBiometric(
+  accountName: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!window.PublicKeyCredential) {
+      return { success: false, error: 'Thiết bị/trình duyệt không hỗ trợ chuẩn WebAuthn.' };
+    }
+    const challenge = new Uint8Array(32);
+    window.crypto.getRandomValues(challenge);
+    const normKey = normalizeAccountKey(accountName);
+    const savedCredId = localStorage.getItem(`thaptaisan_webauthn_${normKey}`);
+
+    const allowCredentials: PublicKeyCredentialDescriptor[] = savedCredId
+      ? [
+          {
+            type: 'public-key',
+            id: Uint8Array.from(atob(savedCredId), (c) => c.charCodeAt(0)),
+            transports: ['internal'],
+          },
+        ]
+      : [];
+
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId: window.location.hostname || undefined,
+        userVerification: 'required',
+        timeout: 60000,
+        ...(allowCredentials.length > 0 ? { allowCredentials } : {}),
+      },
+    });
+
+    if (assertion) {
+      return { success: true };
+    }
+    return { success: false, error: 'Xác thực sinh trắc học máy không thành công.' };
+  } catch (err: any) {
+    if (err.name === 'NotAllowedError') {
+      return { success: false, error: 'Đã hủy xác thực Face ID / Vân tay của máy.' };
+    }
+    return { success: false, error: err?.message || 'Lỗi xác thực sinh trắc học máy' };
+  }
+}
+

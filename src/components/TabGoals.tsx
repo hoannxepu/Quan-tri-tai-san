@@ -109,6 +109,11 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
   const [goalYears, setGoalYears] = useState(2);
   const [goalNote, setGoalNote] = useState('');
 
+  // Editable Accumulated Results & Backlog States
+  const [editTotalBoughtStr, setEditTotalBoughtStr] = useState('');
+  const [editBacklogQtyStr, setEditBacklogQtyStr] = useState('');
+  const [editSyncToAsset, setEditSyncToAsset] = useState(true);
+
   // Table & Stress test states
   const [showPillarList, setShowPillarList] = useState(false); // Mặc định là ẩn danh sách 4 trụ cột
   const [showGoalTable, setShowGoalTable] = useState(false);
@@ -519,6 +524,12 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     setGoalTargetStr(g.target ? formatNumberString(g.target) : '');
     setGoalYears(g.years || 2);
     setGoalNote(g.note || '');
+
+    // Nạp kết quả tích lũy thực tế & nợ kỳ trước để người dùng có thể sửa
+    setEditTotalBoughtStr(g.totalBought !== undefined ? formatNumberString(g.totalBought) : '');
+    setEditBacklogQtyStr(g.backlogQty !== undefined ? formatNumberString(g.backlogQty) : '');
+    setEditSyncToAsset(true);
+
     setShowGoalForm(true);
 
     setTimeout(() => {
@@ -542,6 +553,9 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     setGoalTargetStr('');
     setGoalYears(2);
     setGoalNote('');
+    setEditTotalBoughtStr('');
+    setEditBacklogQtyStr('');
+    setEditSyncToAsset(true);
     setShowGoalForm(false);
   };
 
@@ -562,6 +576,11 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
       }
 
       const existing = editingGoalId ? db.goals.find((g) => g.id === editingGoalId) : null;
+      
+      // Cho phép sửa trực tiếp kết quả tích lũy lũy kế và nợ kỳ trước
+      const totalBoughtVal = editTotalBoughtStr !== '' ? parseFormattedNumber(editTotalBoughtStr) : (existing?.totalBought || 0);
+      const backlogQtyVal = editBacklogQtyStr !== '' ? parseFormattedNumber(editBacklogQtyStr) : (existing?.backlogQty || 0);
+
       const newGoal: Goal = {
         id: editingGoalId || Date.now(),
         group: goalGroup,
@@ -574,14 +593,44 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         targetAmountPerPeriod: assetType === 'saving' || unit === 'VNĐ' ? qty : undefined,
         unit,
         day: goalDay,
-        backlogQty: existing?.backlogQty || 0,
-        totalBought: existing?.totalBought || 0,
-        lastBoughtPeriod: existing?.lastBoughtPeriod || '',
+        backlogQty: backlogQtyVal,
+        totalBought: totalBoughtVal,
+        lastBoughtPeriod: existing?.lastBoughtPeriod || (totalBoughtVal > 0 ? currentPeriodStr : ''),
         status: existing?.status || 'active',
         note: goalNote.trim() || undefined,
       };
 
       onUpdateGoal(newGoal);
+
+      // Nếu người dùng chọn đồng bộ sang tài sản tương ứng ở Tab 1
+      if (editSyncToAsset) {
+        let matchedAsset = linkedAssetId
+          ? db.assets.find((a) => a.id === linkedAssetId)
+          : db.assets.find((a) => a.name.toLowerCase() === goalName.trim().toLowerCase());
+
+        if (matchedAsset) {
+          if (matchedAsset.type === 'saving' || assetType === 'saving' || unit === 'VNĐ') {
+            onUpdateAssetDirectly({
+              ...matchedAsset,
+              amount: totalBoughtVal,
+              updatedAt: new Date().toLocaleDateString('vi-VN'),
+            });
+          } else if (matchedAsset.type === 'stock' || matchedAsset.type === 'gold' || assetType === 'stock' || assetType === 'gold') {
+            const unitPrice =
+              matchedAsset.costPrice ||
+              matchedAsset.currentPrice ||
+              (matchedAsset.quantity && matchedAsset.quantity > 0
+                ? Math.round(matchedAsset.amount / matchedAsset.quantity)
+                : 0);
+            onUpdateAssetDirectly({
+              ...matchedAsset,
+              quantity: totalBoughtVal,
+              amount: unitPrice > 0 ? totalBoughtVal * unitPrice : matchedAsset.amount,
+              updatedAt: new Date().toLocaleDateString('vi-VN'),
+            });
+          }
+        }
+      }
     } else {
       const target = parseFormattedNumber(goalTargetStr);
       if (target <= 0) {
@@ -1951,6 +2000,67 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
                   </span>
                 </div>
               )}
+
+              {/* Phần điều chỉnh Kết Quả Đã Tích Lũy Lũy Kế & Nợ Kỳ Trước */}
+              <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                    <i className="fa-solid fa-pen-to-square text-amber-600"></i>
+                    <span>Kết Quả Đã Tích Lũy Thực Tế & Lũy Kế</span>
+                  </label>
+                  <span className="text-[10px] text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md font-semibold border border-amber-300">
+                    {editingGoalId ? 'Chỉnh sửa kết quả tích lũy' : 'Nhập kết quả đã có sẵn'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Lũy kế đã tích lũy đến nay ({unit})
+                    </label>
+                    <input
+                      type="text"
+                      value={editTotalBoughtStr}
+                      onChange={(e) => setEditTotalBoughtStr(formatNumberString(e.target.value))}
+                      placeholder="0"
+                      className="w-full bg-white border border-amber-300 rounded-xl p-2.5 text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Tổng số {unit} đã mua/nạp thành công trong toàn bộ quá trình.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Nợ kỳ trước chưa nạp đủ ({unit})
+                    </label>
+                    <input
+                      type="text"
+                      value={editBacklogQtyStr}
+                      onChange={(e) => setEditBacklogQtyStr(formatNumberString(e.target.value))}
+                      placeholder="0"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-700 outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Số lượng còn nợ từ các kỳ trước cần gom nạp bù.
+                    </p>
+                  </div>
+                </div>
+
+                {(linkedAssetId || db.assets.some((a) => a.name.toLowerCase() === goalName.trim().toLowerCase())) && (
+                  <label className="flex items-center space-x-2 pt-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={editSyncToAsset}
+                      onChange={(e) => setEditSyncToAsset(e.target.checked)}
+                      className="w-4 h-4 rounded border-amber-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-amber-900">
+                      Đồng bộ cập nhật số dư này sang tài sản liên kết ở Tháp Tài Sản (Tab 1)
+                    </span>
+                  </label>
+                )}
+              </div>
             </div>
           ) : (
             /* MILESTONE MODE FORM SECTION */
