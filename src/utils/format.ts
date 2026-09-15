@@ -102,24 +102,10 @@ export function formatVND(val: number | undefined | null, isPrivacyMode: boolean
 // Helper chuyển đổi số Serial Date của Excel (ví dụ 45847 -> 09/07/2025)
 export function excelSerialToDate(serial: number): Date {
   // Excel base: 1899-12-30 (due to 1900 leap year bug in Lotus/Excel)
-  const utcDays = serial - 25569;
-  const utcValue = utcDays * 86400 * 1000;
-  const dateInfo = new Date(utcValue);
-  const fractionalDay = serial - Math.floor(serial) + 0.0000001;
-  let totalSeconds = Math.floor(86400 * fractionalDay);
-  const seconds = totalSeconds % 60;
-  totalSeconds = Math.floor(totalSeconds / 60);
-  const minutes = totalSeconds % 60;
-  const hours = Math.floor(totalSeconds / 60);
-
-  return new Date(
-    dateInfo.getUTCFullYear(),
-    dateInfo.getUTCMonth(),
-    dateInfo.getUTCDate(),
-    hours,
-    minutes,
-    seconds
-  );
+  const wholeDays = Math.floor(serial);
+  const fractionalDay = serial - wholeDays;
+  const utcMillis = Math.round((wholeDays - 25569) * 86400 * 1000 + fractionalDay * 86400 * 1000);
+  return new Date(utcMillis);
 }
 
 // Hàm chuẩn hóa chuỗi ngày tháng, nhận diện và sửa lỗi số Serial Date của Excel
@@ -128,18 +114,28 @@ export function normalizeDateStr(val: any): string {
   
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return '';
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
+    // SheetJS reads Excel dates into Date objects as UTC midnight (00:00:00.000Z).
+    // Using local getFullYear()/getDate() in environments behind UTC drops 1 day (e.g. July 9 becomes July 8).
+    // Reading UTC components preserves the exact calendar date entered in Excel.
+    let y = val.getUTCFullYear();
+    let m = String(val.getUTCMonth() + 1).padStart(2, '0');
+    let d = String(val.getUTCDate()).padStart(2, '0');
+
+    // If it was created explicitly as local midnight (hours=0, minutes=0, but non-zero UTC hours)
+    if (val.getHours() === 0 && val.getMinutes() === 0 && val.getUTCHours() !== 0) {
+      y = val.getFullYear();
+      m = String(val.getMonth() + 1).padStart(2, '0');
+      d = String(val.getDate()).padStart(2, '0');
+    }
     return `${y}-${m}-${d}`;
   }
 
-  // Nếu là số nguyên hoặc chuỗi số thuần túy dạng Excel serial (từ 30000 đến 80000)
+  // Nếu là số nguyên hoặc chuỗi số thuần túy dạng Excel serial (từ 25000 đến 90000)
   if (typeof val === 'number' && val >= 25000 && val <= 90000) {
     const dObj = excelSerialToDate(val);
-    const y = dObj.getFullYear();
-    const m = String(dObj.getMonth() + 1).padStart(2, '0');
-    const d = String(dObj.getDate()).padStart(2, '0');
+    const y = dObj.getUTCFullYear();
+    const m = String(dObj.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dObj.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
 
@@ -151,9 +147,9 @@ export function normalizeDateStr(val: any): string {
     const num = parseInt(str, 10);
     if (num >= 25000 && num <= 90000) {
       const dObj = excelSerialToDate(num);
-      const y = dObj.getFullYear();
-      const m = String(dObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dObj.getDate()).padStart(2, '0');
+      const y = dObj.getUTCFullYear();
+      const m = String(dObj.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getUTCDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
     }
   }
@@ -164,9 +160,9 @@ export function normalizeDateStr(val: any): string {
     const num = parseInt(corruptedExcel[1], 10);
     if (num >= 25000 && num <= 90000) {
       const dObj = excelSerialToDate(num);
-      const y = dObj.getFullYear();
-      const m = String(dObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dObj.getDate()).padStart(2, '0');
+      const y = dObj.getUTCFullYear();
+      const m = String(dObj.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getUTCDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
     }
   }
@@ -179,9 +175,9 @@ export function normalizeDateStr(val: any): string {
     const yearNum = parseInt(ddmmyyyy[3], 10);
     if (yearNum >= 25000 && yearNum <= 90000) {
       const dObj = excelSerialToDate(yearNum);
-      const y = dObj.getFullYear();
-      const m = String(dObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dObj.getDate()).padStart(2, '0');
+      const y = dObj.getUTCFullYear();
+      const m = String(dObj.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getUTCDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
     }
     return `${yearNum}-${month}-${day}`;

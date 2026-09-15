@@ -1,4 +1,5 @@
 import { Asset } from '../types';
+import { normalizeDateStr, formatDateVN, calculateMaturityDateISO } from './format';
 
 export interface BankGroup {
   bankKey: string;
@@ -9,6 +10,10 @@ export interface BankGroup {
   totalMaturityInterest: number;
   avgMonthlyInterest: number;
   weightedRate: number;
+  nearestMaturityDate?: string;
+  nearestMaturityISO?: string;
+  daysToNearestMaturity?: number;
+  count: number;
 }
 
 const BANK_RULES: { match: RegExp; name: string; icon: string }[] = [
@@ -98,6 +103,7 @@ export function groupSavingsByBank(savingAssets: Asset[]): BankGroup[] {
         totalMaturityInterest: 0,
         avgMonthlyInterest: 0,
         weightedRate: 0,
+        count: 0,
       });
     }
 
@@ -119,12 +125,42 @@ export function groupSavingsByBank(savingAssets: Asset[]): BankGroup[] {
   }
 
   const groups = Array.from(map.values());
-  // Compute weighted rate
+  const today = new Date();
+  const todayTime = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
+  // Compute weighted rate and nearest maturity date for each bank
   groups.forEach((g) => {
+    g.count = g.assets.length;
     if (g.totalPrincipal > 0) {
       const sumRateWeight = g.assets.reduce((sum, a) => sum + (a.amount * (a.rate || 0)), 0);
       g.weightedRate = Number((sumRateWeight / g.totalPrincipal).toFixed(2));
     }
+
+    // Determine nearest maturity date among all assets in this bank
+    const maturities: { iso: string; time: number }[] = [];
+    g.assets.forEach((a) => {
+      let iso = a.maturityDate ? normalizeDateStr(a.maturityDate) : '';
+      if (!iso && a.startDate && a.termMonths) {
+        iso = calculateMaturityDateISO(a.startDate, a.termMonths);
+      }
+      if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        const parts = iso.split('-').map(Number);
+        const t = new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+        if (!isNaN(t)) {
+          maturities.push({ iso, time: t });
+        }
+      }
+    });
+
+    if (maturities.length > 0) {
+      // Find the nearest upcoming maturity date (time >= todayTime), or if all in past, the latest past one
+      const upcoming = maturities.filter((m) => m.time >= todayTime).sort((a, b) => a.time - b.time);
+      const chosen = upcoming.length > 0 ? upcoming[0] : maturities.sort((a, b) => b.time - a.time)[0];
+      g.nearestMaturityISO = chosen.iso;
+      g.nearestMaturityDate = formatDateVN(chosen.iso);
+      g.daysToNearestMaturity = Math.round((chosen.time - todayTime) / (1000 * 60 * 60 * 24));
+    }
+
     // Sort assets inside each bank by maturityDate or amount descending
     g.assets.sort((a, b) => (b.amount || 0) - (a.amount || 0));
   });

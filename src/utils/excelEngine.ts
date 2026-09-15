@@ -1,7 +1,7 @@
 import XLSX from 'xlsx-js-style';
 import ExcelJS from 'exceljs';
 import { Asset, AssetLevel, AssetType, Debt, DebtCategory, Goal, GoalGroup, DatabaseState, AssetTransaction } from '../types';
-import { normalizeDateStr, formatDateVN, parseFormattedDecimal } from './format';
+import { normalizeDateStr, formatDateVN, parseFormattedDecimal, calculateMaturityDateISO } from './format';
 
 export interface ParsedAssetItem {
   id?: number;
@@ -1290,9 +1290,9 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     let colAmount: any = 0;
     let colCostPrice: any = 0;
     let colRate: any = 0;
-    let colStartDate = '';
+    let colStartDate: any = '';
     let colTerm: any = 0;
-    let colMaturityDate = '';
+    let colMaturityDate: any = '';
     let colQty: any = 1;
     let colCashflow: any = 0;
     let colDivCash: any = 0;
@@ -1306,9 +1306,9 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
       colAmount = colMap.amount !== undefined ? row[colMap.amount] : 0;
       colCostPrice = colMap.costPrice !== undefined ? row[colMap.costPrice] : 0;
       colRate = colMap.rate !== undefined ? row[colMap.rate] : 0;
-      colStartDate = colMap.startDate !== undefined ? String(row[colMap.startDate] || '') : '';
+      colStartDate = colMap.startDate !== undefined ? row[colMap.startDate] : '';
       colTerm = colMap.termMonths !== undefined ? row[colMap.termMonths] : 0;
-      colMaturityDate = colMap.maturityDate !== undefined ? String(row[colMap.maturityDate] || '') : '';
+      colMaturityDate = colMap.maturityDate !== undefined ? row[colMap.maturityDate] : '';
       colQty = colMap.quantity !== undefined ? row[colMap.quantity] : 1;
       colCashflow = colMap.cashflow !== undefined ? row[colMap.cashflow] : 0;
       colDivCash = colMap.divCash !== undefined ? row[colMap.divCash] : 0;
@@ -1334,9 +1334,9 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
         colAmount = cleanRow[3];
         colCostPrice = cleanRow[4];
         colRate = cleanRow[5];
-        colStartDate = String(cleanRow[6] || '');
+        colStartDate = cleanRow[6];
         colTerm = cleanRow[7];
-        colMaturityDate = String(cleanRow[8] || '');
+        colMaturityDate = cleanRow[8];
         colQty = cleanRow[9];
         colCashflow = cleanRow[10];
         colDivCash = cleanRow[11];
@@ -1378,7 +1378,10 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     const divCashNum = colDivCash ? parseAmountValue(colDivCash) : 0;
     const termNum = colTerm ? parseInt(String(colTerm), 10) : undefined;
     const startDateVal = parseDateValue(colStartDate);
-    const maturityVal = parseDateValue(colMaturityDate);
+    let maturityVal = parseDateValue(colMaturityDate);
+    if ((assetType === 'saving' || assetType === 'bond' || assetType === 'peer_lending') && startDateVal && termNum && termNum > 0) {
+      maturityVal = calculateMaturityDateISO(startDateVal, termNum);
+    }
 
     results.push({
       id: parsedId,
@@ -1465,7 +1468,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     let colId: any = undefined;
     let colCat = '';
     let colName = '';
-    let colStartDate = '';
+    let colStartDate: any = '';
     let colAmount: any = 0;
     let colPaid: any = 0;
     let colTerm: any = 0;
@@ -1473,7 +1476,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     let colMonthlyBefore: any = 0;
     let colPromoRate: any = 0;
     let colPromoMonths: any = 0;
-    let colPromoEndDate = '';
+    let colPromoEndDate: any = '';
     let colNormalRate: any = 0;
     let colMonthlyAfter: any = 0;
     let colDay: any = 1;
@@ -1484,7 +1487,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colCat = colMap.category !== undefined ? String(row[colMap.category] || '') : '';
       colName = colMap.name !== undefined ? String(row[colMap.name] || '') : '';
-      colStartDate = colMap.startDate !== undefined ? String(row[colMap.startDate] || '') : '';
+      colStartDate = colMap.startDate !== undefined ? row[colMap.startDate] : '';
       colAmount = colMap.amount !== undefined ? row[colMap.amount] : 0;
       colPaid = colMap.paidPrincipal !== undefined ? row[colMap.paidPrincipal] : 0;
       colTerm = colMap.termMonths !== undefined ? row[colMap.termMonths] : 0;
@@ -1492,7 +1495,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       colMonthlyBefore = colMap.monthlyBefore !== undefined ? row[colMap.monthlyBefore] : 0;
       colPromoRate = colMap.promoRate !== undefined ? row[colMap.promoRate] : 0;
       colPromoMonths = colMap.promoMonths !== undefined ? row[colMap.promoMonths] : 0;
-      colPromoEndDate = colMap.promoEndDate !== undefined ? String(row[colMap.promoEndDate] || '') : '';
+      colPromoEndDate = colMap.promoEndDate !== undefined ? row[colMap.promoEndDate] : '';
       colNormalRate = colMap.normalRate !== undefined ? row[colMap.normalRate] : 0;
       colMonthlyAfter = colMap.monthlyAfter !== undefined ? row[colMap.monthlyAfter] : colMonthlyBefore;
       colDay = colMap.day !== undefined ? row[colMap.day] : 1;
@@ -1512,7 +1515,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       if (cleanRow.length >= 15) {
         colCat = String(cleanRow[0] || '');
         colName = String(cleanRow[1] || '');
-        colStartDate = String(cleanRow[2] || '');
+        colStartDate = cleanRow[2];
         colAmount = cleanRow[3];
         colPaid = cleanRow[4];
         colTerm = cleanRow[5];
@@ -1520,7 +1523,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
         colMonthlyBefore = cleanRow[7];
         colPromoRate = cleanRow[8];
         colPromoMonths = cleanRow[9];
-        colPromoEndDate = String(cleanRow[10] || '');
+        colPromoEndDate = cleanRow[10];
         colNormalRate = cleanRow[11];
         colMonthlyAfter = cleanRow[12];
         colDay = cleanRow[13];
@@ -1564,20 +1567,26 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     else if (lowerFreq.includes('năm')) freq = 'annual';
     else if (lowerFreq.includes('linh hoạt')) freq = 'flexible';
 
+    const startDateVal = parseDateValue(colStartDate);
+    let promoEndDateVal = parseDateValue(colPromoEndDate);
+    if (category === 'type1' && startDateVal && pMonths && pMonths > 0) {
+      promoEndDateVal = calculateMaturityDateISO(startDateVal, pMonths);
+    }
+
     debts.push({
       id: parsedId,
       category,
       categoryName: getDebtCategoryLabel(category),
       name: cleanName || `Khoản nợ ${debts.length + 1}`,
       frequency: freq,
-      startDate: parseDateValue(colStartDate) || undefined,
+      startDate: startDateVal || undefined,
       amount: amountNum,
       paidPrincipal: paidNum,
       termMonths: termNum,
       promoRate: pRate > 0 ? pRate : undefined,
       normalRate: nRate > 0 ? nRate : undefined,
       promoMonths: pMonths,
-      promoEndDate: parseDateValue(colPromoEndDate) || undefined,
+      promoEndDate: promoEndDateVal || undefined,
       monthlyBefore: monthlyBeforeNum,
       monthlyAfter: monthlyAfterNum,
       day: dayNum,
@@ -1800,7 +1809,7 @@ export const parseRawRowsToTransactions = (rawRows: any[][]): AssetTransaction[]
     let colId: any = undefined;
     let colAssetId: any = undefined;
     let colAssetName = '';
-    let colDate = '';
+    let colDate: any = '';
     let colType = 'buy';
     let colQty: any = 0;
     let colUnit = '';
@@ -1812,7 +1821,7 @@ export const parseRawRowsToTransactions = (rawRows: any[][]): AssetTransaction[]
       colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colAssetId = colMap.assetId !== undefined ? row[colMap.assetId] : undefined;
       colAssetName = colMap.assetName !== undefined ? String(row[colMap.assetName] || '') : '';
-      colDate = colMap.date !== undefined ? String(row[colMap.date] || '') : '';
+      colDate = colMap.date !== undefined ? row[colMap.date] : '';
       colType = colMap.type !== undefined ? String(row[colMap.type] || '') : 'buy';
       colQty = colMap.quantity !== undefined ? row[colMap.quantity] : 0;
       colUnit = colMap.unit !== undefined ? String(row[colMap.unit] || '') : '';
@@ -1830,7 +1839,7 @@ export const parseRawRowsToTransactions = (rawRows: any[][]): AssetTransaction[]
       if (cleanRow.length >= 8) {
         colAssetId = cleanRow[0];
         colAssetName = String(cleanRow[1] || '');
-        colDate = String(cleanRow[2] || '');
+        colDate = cleanRow[2];
         colType = String(cleanRow[3] || 'buy');
         colQty = cleanRow[4];
         colUnit = String(cleanRow[5] || '');

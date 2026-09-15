@@ -386,7 +386,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
       installmentAmount: installmentAmount || undefined,
       periodicAmount: periodicAmount || undefined,
       promoMonths: promoMonths || undefined,
-      promoEndDate: debtPromoEndDate || (debtCat === 'type1' && debtStartDate && promoMonths ? calculateMaturityDateISO(debtStartDate, promoMonths) : undefined),
+      promoEndDate: (debtCat === 'type1' && debtStartDate && promoMonths ? calculateMaturityDateISO(debtStartDate, promoMonths) : debtPromoEndDate) || undefined,
       promoRate: promoRate || undefined,
       normalRate: normalRate || undefined,
       monthlyBefore: computedMonthlyBefore,
@@ -1188,8 +1188,13 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
 
             {(debtCat === 'type1' || debtCat === 'type2') && (
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Thời Hạn Tổng (Tháng)
+                <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center justify-between">
+                  <span>Thời Hạn Tổng (Tháng)</span>
+                  {debtStartDate && debtTermMonthsStr && (
+                    <span className="text-[9.5px] text-emerald-700 font-bold">
+                      Đáo hạn: {calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}
+                    </span>
+                  )}
                 </label>
                 <input
                   type="number"
@@ -1198,6 +1203,12 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                   placeholder="VD: 240 (Tháng)"
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
                 />
+                {debtStartDate && debtTermMonthsStr && (
+                  <div className="mt-1 text-[9.5px] text-slate-500 font-medium flex items-center gap-1">
+                    <span>🔒 Ngày tất toán hợp đồng:</span>
+                    <span className="font-bold text-slate-800">{calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1279,22 +1290,33 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-orange-800 mb-1 flex items-center justify-between">
-                  <span>Mốc Hết Ưu Đãi</span>
-                  <span className="text-[10px] text-orange-600 font-normal">
-                    {debtStartDate && promoMonthsStr ? '(Tự tính)' : ''}
+                  <span className="flex items-center gap-1">
+                    <span>Mốc Hết Ưu Đãi</span>
+                    <span className="text-[9px] px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded font-bold">🔒 Tự động tính</span>
+                  </span>
+                  <span className="text-[10px] text-amber-600 font-normal">
+                    (Khóa không sửa)
                   </span>
                 </label>
                 <input
                   type="date"
+                  readOnly={true}
                   value={
-                    debtPromoEndDate ||
-                    (debtStartDate && promoMonthsStr
+                    debtStartDate && promoMonthsStr
                       ? calculateMaturityDateISO(debtStartDate, Number(promoMonthsStr))
-                      : '')
+                      : (debtPromoEndDate || '')
                   }
-                  onChange={(e) => setDebtPromoEndDate(e.target.value)}
-                  className="w-full bg-orange-50/70 border border-orange-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-orange-500"
+                  className="w-full bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-xl p-2.5 text-xs cursor-not-allowed select-none outline-none shadow-2xs"
+                  title="Mốc hết hạn ưu đãi được tự động tính theo ngày giải ngân và số tháng ưu đãi, không cho phép chỉnh sửa."
                 />
+                <div className="text-[9.5px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
+                  <span>⚡ Tự động tính:</span>
+                  <span className="font-bold text-orange-700">
+                    {debtStartDate && promoMonthsStr
+                      ? calculateMaturityDate(debtStartDate, Number(promoMonthsStr))
+                      : 'Chờ ngày giải ngân & tháng ưu đãi'}
+                  </span>
+                </div>
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
