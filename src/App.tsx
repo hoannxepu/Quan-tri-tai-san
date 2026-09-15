@@ -615,39 +615,87 @@ export default function App() {
   };
 
   const handleExportExcel = () => {
-    exportAssetsToExcel(db.assets, userDisplay);
+    exportAssetsToExcel(db, userDisplay);
   };
 
-  const handleImportAssetsFromExcel = (
-    newItems: Omit<Asset, 'id'>[],
+  const handleImportDataFromExcel = (
+    data: {
+      assets: Omit<Asset, 'id'>[];
+      debts: Omit<Debt, 'id'>[];
+      goals: Omit<Goal, 'id'>[];
+      salaryIncome?: number;
+      otherIncome?: number;
+    },
     mode: 'append' | 'replace'
   ) => {
     setDb((prev) => {
       let updatedAssets: Asset[];
+      let updatedDebts: Debt[];
+      let updatedGoals: Goal[];
+
       if (mode === 'replace') {
-        updatedAssets = newItems.map((item, idx) => ({
-          ...item,
-          id: Date.now() + idx,
-        }));
+        updatedAssets =
+          data.assets.length > 0
+            ? data.assets.map((item, idx) => ({
+                ...item,
+                id: Date.now() + idx,
+              }))
+            : prev.assets;
+
+        updatedDebts =
+          data.debts.length > 0
+            ? data.debts.map((item, idx) => ({
+                ...item,
+                id: Date.now() + 1000 + idx,
+              }))
+            : prev.debts;
+
+        updatedGoals =
+          data.goals.length > 0
+            ? data.goals.map((item, idx) => ({
+                ...item,
+                id: Date.now() + 2000 + idx,
+              }))
+            : prev.goals;
       } else {
-        const existingIds = new Set(prev.assets.map((a) => a.id));
-        let nextId = Date.now();
-        const formattedNew: Asset[] = newItems.map((item) => {
-          while (existingIds.has(nextId)) {
-            nextId++;
-          }
-          existingIds.add(nextId);
-          return {
-            ...item,
-            id: nextId,
-          };
+        // Mode Append
+        const existingAssetIds = new Set(prev.assets.map((a) => a.id));
+        let nextAssetId = Date.now();
+        const formattedNewAssets: Asset[] = data.assets.map((item) => {
+          while (existingAssetIds.has(nextAssetId)) nextAssetId++;
+          existingAssetIds.add(nextAssetId);
+          return { ...item, id: nextAssetId };
         });
-        updatedAssets = [...prev.assets, ...formattedNew];
+        updatedAssets = [...prev.assets, ...formattedNewAssets];
+
+        const existingDebtIds = new Set(prev.debts.map((d) => d.id));
+        let nextDebtId = Date.now() + 1000;
+        const formattedNewDebts: Debt[] = data.debts.map((item) => {
+          while (existingDebtIds.has(nextDebtId)) nextDebtId++;
+          existingDebtIds.add(nextDebtId);
+          return { ...item, id: nextDebtId };
+        });
+        updatedDebts = [...prev.debts, ...formattedNewDebts];
+
+        const existingGoalIds = new Set(prev.goals.map((g) => g.id));
+        let nextGoalId = Date.now() + 2000;
+        const formattedNewGoals: Goal[] = data.goals.map((item) => {
+          while (existingGoalIds.has(nextGoalId)) nextGoalId++;
+          existingGoalIds.add(nextGoalId);
+          return { ...item, id: nextGoalId };
+        });
+        updatedGoals = [...prev.goals, ...formattedNewGoals];
       }
 
       const newDb: DatabaseState = {
         ...prev,
         assets: updatedAssets,
+        debts: updatedDebts,
+        goals: updatedGoals,
+        salaryIncome:
+          data.salaryIncome !== undefined && data.salaryIncome > 0 ? data.salaryIncome : prev.salaryIncome,
+        otherIncome:
+          data.otherIncome !== undefined && data.otherIncome > 0 ? data.otherIncome : prev.otherIncome,
         lastUpdate: getCurrentTimestampVN(),
       };
       triggerBackgroundSync(newDb, true);
@@ -687,8 +735,10 @@ export default function App() {
       <SmartExcelModal
         isOpen={showSmartExcelModal}
         currentAssetsCount={db.assets.length}
+        currentDebtsCount={db.debts.length}
+        currentGoalsCount={db.goals.length}
         onClose={() => setShowSmartExcelModal(false)}
-        onImportAssets={handleImportAssetsFromExcel}
+        onImportData={handleImportDataFromExcel}
       />
 
       {/* Monthly Financial Email Report & Auto Reminder Modal */}

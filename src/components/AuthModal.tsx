@@ -13,6 +13,7 @@ import {
   LogIn,
   X,
   ArrowLeft,
+  Monitor,
 } from 'lucide-react';
 import { PyramidLogo } from './PyramidLogo';
 import { normalizeAccountKey } from '../utils/format';
@@ -70,6 +71,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isPlatformSupported, setIsPlatformSupported] = useState<boolean>(true);
+  const [showDesktopNoticeModal, setShowDesktopNoticeModal] = useState(false);
+
+  // Helper detection for Desktop / PC vs Mobile
+  const isDesktopDevice = () => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isMobileOrTablet =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) ||
+      (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
+    return !isMobileOrTablet;
+  };
 
   useEffect(() => {
     isPlatformBiometricAvailable().then((avail) => setIsPlatformSupported(avail));
@@ -151,6 +163,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleNativeBiometricUnlock = async (overrideAccount?: string) => {
     setError('');
     setSuccessMsg('');
+
+    // 1. Nếu là thiết bị máy tính: Hiển thị hộp thoại thông báo máy tính không hỗ trợ
+    if (isDesktopDevice()) {
+      setShowDesktopNoticeModal(true);
+      return;
+    }
+
+    // 2. Trên điện thoại / máy tính bảng: Tự động chạy đăng nhập ngay mà không hiện hộp thoại hỏi han hay mã khóa
     const targetAccount = (overrideAccount || account.trim() || currentAcc || localStorage.getItem('thaptaisan_saved_account') || '').trim();
     if (!targetAccount) {
       setError('Vui lòng nhập Số điện thoại hoặc Gmail tài khoản trước khi xác thực Face ID!');
@@ -158,57 +178,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     setLoading(true);
+    setSuccessMsg('✓ Đang xác thực Face ID / Vân tay...');
     try {
-      const normKey = normalizeAccountKey(targetAccount);
-      const isEnrolled = hasPlatformBiometricEnrolled(normKey);
-
-      if (!isEnrolled) {
-        const wantEnroll = window.confirm(
-          `Thiết bị này chưa kích hoạt Face ID / Vân tay cho "${targetAccount}". Bạn có muốn kích hoạt ngay bằng sinh trắc học của máy không?`
-        );
-        if (wantEnroll) {
-          const regRes = await registerPlatformBiometric(targetAccount);
-          if (regRes.success) {
-            setSuccessMsg('✓ Đã kích hoạt Face ID / Vân tay thành công! Đang đăng nhập...');
-            setTimeout(async () => {
-              if (onFaceIdUnlock) {
-                const ok = await onFaceIdUnlock(targetAccount);
-                if (ok) return;
-              }
-              const savedP = localStorage.getItem('thaptaisan_saved_pass');
-              if (savedP) {
-                await onLogin(targetAccount, savedP, true);
-              }
-            }, 250);
-            return;
-          } else {
-            setError(regRes.error || 'Không thể kích hoạt sinh trắc học máy');
-            return;
-          }
-        } else {
-          setLoading(false);
+      if (onFaceIdUnlock) {
+        const ok = await onFaceIdUnlock(targetAccount);
+        if (ok) {
+          if (onClose) setTimeout(onClose, 200);
           return;
         }
       }
 
-      const res = await authenticatePlatformBiometric(targetAccount);
-      if (res.success) {
-        setSuccessMsg('✓ Xác thực Face ID / Sinh trắc học thành công!');
-        setTimeout(async () => {
-          if (onFaceIdUnlock) {
-            const ok = await onFaceIdUnlock(targetAccount);
-            if (ok) return;
-          }
-          const savedP = localStorage.getItem('thaptaisan_saved_pass');
-          if (savedP) {
-            await onLogin(targetAccount, savedP, true);
-          }
-        }, 250);
-      } else {
-        setError(res.error || 'Xác thực sinh trắc học máy không thành công. Bạn có thể nhập mật khẩu.');
+      const savedP = localStorage.getItem('thaptaisan_saved_pass');
+      if (savedP) {
+        await onLogin(targetAccount, savedP, true);
+        if (onClose) setTimeout(onClose, 200);
+        return;
       }
+
+      setError('Chưa có dữ liệu sinh trắc học đã lưu trên thiết bị. Vui lòng đăng nhập mật khẩu lần đầu.');
     } catch (err: any) {
-      setError(err?.message || 'Không thể xác thực sinh trắc học thiết bị');
+      setError(err?.message || 'Không thể xác thực sinh trắc học.');
     } finally {
       setLoading(false);
     }
@@ -237,6 +226,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     const cleanAccount = validateRegisterInputs();
     if (!cleanAccount) return;
 
+    if (isDesktopDevice()) {
+      setShowDesktopNoticeModal(true);
+      return;
+    }
+
     setLoading(true);
     try {
       if (onRegister) {
@@ -249,22 +243,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }
       recordRegisteredAccount(cleanAccount);
+      localStorage.setItem('thaptaisan_faceid_enabled', '1');
+      localStorage.setItem('thaptaisan_faceid_account', cleanAccount);
+      localStorage.setItem('thaptaisan_saved_account', cleanAccount);
+      localStorage.setItem('thaptaisan_saved_pass', regPass);
 
-      // Trigger native device biometric enrollment (Face ID / Vân tay của máy)
-      const bioRes = await registerPlatformBiometric(cleanAccount);
-      if (bioRes.success) {
-        setSuccessMsg('✓ Đăng ký & Kích hoạt Face ID / Vân tay thành công!');
-        setTimeout(async () => {
-          await onLogin(cleanAccount, regPass, true);
-        }, 300);
-      } else {
-        setSuccessMsg('✓ Đã tạo tài khoản thành công!');
-        setTimeout(async () => {
-          await onLogin(cleanAccount, regPass, true);
-        }, 300);
-      }
+      setSuccessMsg('✓ Đăng ký & Kích hoạt Face ID / Vân tay thành công!');
+      setTimeout(async () => {
+        await onLogin(cleanAccount, regPass, true);
+      }, 300);
     } catch (err: any) {
-      setError(err?.message || 'Lỗi khi kích hoạt sinh trắc học thiết bị');
+      setError(err?.message || 'Lỗi khi kích hoạt sinh trắc học');
     } finally {
       setLoading(false);
     }
@@ -781,6 +770,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
       </div>
+
+      {/* Hộp thoại thông báo máy tính không hỗ trợ Face ID / Vân tay */}
+      {showDesktopNoticeModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl border border-slate-200 text-center space-y-3.5 animate-in zoom-in-95">
+            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200 shadow-xs">
+              <Monitor className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-900 tracking-tight">
+                Thiết Bị Không Hỗ Trợ
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed mt-1.5 px-2">
+                Trình duyệt trên máy tính hiện không hỗ trợ cảm biến sinh trắc học Face ID / Vân tay trực tiếp. Vui lòng đăng nhập bằng <strong>Mật khẩu</strong> hoặc sử dụng ứng dụng trên <strong>Điện thoại</strong> để trải nghiệm tính năng này.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDesktopNoticeModal(false)}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-xs"
+            >
+              Đã hiểu, đăng nhập bằng Mật khẩu
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

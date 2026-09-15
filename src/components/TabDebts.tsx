@@ -1437,6 +1437,8 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
 
                   const nextDueDateFormatted =
                     d.category === 'type_free' ? 'Linh hoạt' : nextDue.toLocaleDateString('vi-VN');
+                  const finalMaturity =
+                    d.startDate && d.termMonths ? calculateMaturityDate(d.startDate, d.termMonths) : '';
 
                   const freqLabel =
                     d.frequency === 'annual'
@@ -1560,6 +1562,33 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                               style={{ width: `${percentPaid}%` }}
                             />
                           </div>
+                        </div>
+                      )}
+
+                      {/* Row 3.5: Thông tin ngày vay, thời hạn, hết ưu đãi, đáo hạn */}
+                      {(d.startDate || finalMaturity || d.termMonths || (d.category === 'type1' && (d.promoEndDate || d.promoMonths))) && (
+                        <div className="pt-1 border-t border-slate-200/70 flex flex-wrap items-center gap-1 text-[9px]">
+                          {d.startDate && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-medium whitespace-nowrap">
+                              <Calendar className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                              <span>Vay: {formatDateVN(d.startDate)}</span>
+                            </span>
+                          )}
+                          {d.termMonths && (
+                            <span className="px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-medium whitespace-nowrap">
+                              Hạn: {d.termMonths}T
+                            </span>
+                          )}
+                          {finalMaturity && d.category !== 'type_free' && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-slate-100 border border-slate-300 text-slate-800 font-bold whitespace-nowrap">
+                              <span>Đáo hạn: {finalMaturity}</span>
+                            </span>
+                          )}
+                          {d.category === 'type1' && (d.promoEndDate || (d.startDate && d.promoMonths)) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-orange-50 border border-orange-200 text-orange-900 font-bold whitespace-nowrap">
+                              <span>Hết ƯĐ: {formatDateVN(d.promoEndDate) || calculateMaturityDate(d.startDate, d.promoMonths)}</span>
+                            </span>
+                          )}
                         </div>
                       )}
 
@@ -1868,19 +1897,18 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
               So sánh Tổng thu nhập, Nghĩa vụ chi trả nợ và Dòng tiền ròng khả dụng theo từng kỳ hạn
             </p>
           </div>
-          <div className="flex items-center space-x-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl text-[10px] sm:text-[11px] font-bold shadow-2xs">
-            {(['quarter', 'year', '3years', '5years'] as const).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setCashflowRange(r)}
-                className={`px-2 sm:px-3 py-1 rounded-lg transition cursor-pointer text-[10px] sm:text-xs ${
-                  cashflowRange === r ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {r === 'quarter' ? 'Quý Này' : r === 'year' ? '1 Năm' : r === '3years' ? '3 Năm' : '5 Năm'}
-              </button>
-            ))}
+          <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs font-semibold shadow-2xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <select
+              value={cashflowRange}
+              onChange={(e) => setCashflowRange(e.target.value as any)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+            >
+              <option value="quarter">Kỳ hạn: Quý Này</option>
+              <option value="year">Kỳ hạn: 1 Năm</option>
+              <option value="3years">Kỳ hạn: 3 Năm</option>
+              <option value="5years">Kỳ hạn: 5 Năm</option>
+            </select>
           </div>
         </div>
 

@@ -1661,77 +1661,38 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
           <span>{showGoalForm ? 'Đóng Khung Thiết Lập' : '+ Thiết Lập Mục Tiêu Mới'}</span>
         </button>
 
-        {/* TIME RANGE FILTER & GROUP FILTER */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 max-w-full text-xs">
-          {/* Group Filter */}
-          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl shrink-0">
-            <button
-              onClick={() => setSelectedGroupFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                selectedGroupFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
+        {/* TIME RANGE FILTER & GROUP FILTER - CLEAN DROPDOWNS */}
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          {/* Group Filter Dropdown */}
+          <div className="flex items-center space-x-1.5 bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs shrink-0">
+            <Layers className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <select
+              value={selectedGroupFilter}
+              onChange={(e) => setSelectedGroupFilter(e.target.value as any)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
             >
-              Tất Cả
-            </button>
-            <button
-              onClick={() => setSelectedGroupFilter('debt')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                selectedGroupFilter === 'debt' ? 'bg-white text-rose-700 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              Trả Nợ
-            </button>
-            <button
-              onClick={() => setSelectedGroupFilter('dca')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                selectedGroupFilter === 'dca' ? 'bg-white text-amber-700 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              Tích Sản DCA
-            </button>
-            <button
-              onClick={() => setSelectedGroupFilter('runway')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                selectedGroupFilter === 'runway' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              Dự Phòng
-            </button>
-            <button
-              onClick={() => setSelectedGroupFilter('milestone')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                selectedGroupFilter === 'milestone' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              Cột Mốc Lớn
-            </button>
+              <option value="all">Nhóm: Tất Cả (4 Trụ Cột)</option>
+              <option value="debt">Nhóm 1: Trả Nợ Vay</option>
+              <option value="dca">Nhóm 2: Tích Sản DCA</option>
+              <option value="runway">Nhóm 3: Dự Phòng</option>
+              <option value="milestone">Nhóm 4: Cột Mốc Lớn</option>
+            </select>
           </div>
 
-          {/* Time Filter */}
-          <div className="flex items-center space-x-1 bg-white border border-slate-200 p-1 rounded-xl shadow-2xs shrink-0">
-            <Filter className="w-3.5 h-3.5 text-slate-400 ml-1" />
-            <span className="text-[11px] font-semibold text-slate-500 mr-1">Thời gian:</span>
-            {(
-              [
-                { id: 'all', label: 'Tất cả' },
-                { id: 'month', label: 'Tháng này' },
-                { id: 'quarter', label: 'Quý này' },
-                { id: 'year', label: '1 Năm' },
-                { id: 'longterm', label: 'Dài hạn' },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setSelectedTimeFilter(t.id)}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                  selectedTimeFilter === t.id
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          {/* Time Filter Dropdown */}
+          <div className="flex items-center space-x-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs shrink-0">
+            <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <select
+              value={selectedTimeFilter}
+              onChange={(e) => setSelectedTimeFilter(e.target.value as any)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+            >
+              <option value="all">Thời gian: Tất cả</option>
+              <option value="month">Thời gian: Tháng này</option>
+              <option value="quarter">Thời gian: Quý này</option>
+              <option value="year">Thời gian: Trong 1 Năm</option>
+              <option value="longterm">Thời gian: Dài hạn (&gt; 1 năm)</option>
+            </select>
           </div>
         </div>
       </div>
@@ -3036,28 +2997,18 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 mr-1.5 sm:mr-2 shrink-0" />
             <span className="truncate">Biểu Đồ Xu Hướng Hoàn Thành Mục Tiêu Thực Tế</span>
           </h3>
-          <div className="flex bg-slate-100 p-0.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold self-start sm:self-auto">
-            {(
-              [
-                { key: 'quarter', label: 'Quý' },
-                { key: 'year', label: '1 Năm' },
-                { key: '3years', label: '3 Năm' },
-                { key: '5years', label: '5 Năm' },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setGoalChartRange(t.key)}
-                className={`px-2 sm:px-3 py-0.5 sm:py-1 rounded-md sm:rounded-lg transition cursor-pointer text-[10px] sm:text-xs ${
-                  goalChartRange === t.key
-                    ? 'bg-white text-blue-600 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs font-semibold shadow-2xs self-start sm:self-auto">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <select
+              value={goalChartRange}
+              onChange={(e) => setGoalChartRange(e.target.value as any)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+            >
+              <option value="quarter">Kỳ hạn: Quý Này</option>
+              <option value="year">Kỳ hạn: 1 Năm</option>
+              <option value="3years">Kỳ hạn: 3 Năm</option>
+              <option value="5years">Kỳ hạn: 5 Năm</option>
+            </select>
           </div>
         </div>
         {/* RESPONSIVE CLEAN HTML LEGEND */}

@@ -1162,8 +1162,8 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
               </div>
             </div>
 
-            {/* 1. DEDICATED MOBILE VIEW (< md) - COMPACT CARD LIST */}
-            <div className="md:hidden space-y-1.5">
+            {/* 1. DEDICATED MOBILE VIEW (< md) - CLEAN COMPACT CARD LIST */}
+            <div className="md:hidden space-y-2">
               {sortedAssets.length === 0 ? (
                 <div className="p-3 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
                   Chưa có tài sản nào. Vui lòng thêm ở khung trên.
@@ -1178,73 +1178,115 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                       : 'bg-rose-100 text-rose-800';
                   const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
 
-                  const detailsList: string[] = [];
-                  if (a.type === 'saving' || a.type === 'bond' || a.type === 'peer_lending') {
-                    if (a.rate) detailsList.push(`Lãi: ${a.rate}%/n`);
-                    if (a.termMonths) detailsList.push(`${a.termMonths}T`);
-                  } else if (a.type === 'stock') {
-                    if (a.quantity) detailsList.push(`${formatNumberString(a.quantity)} CP`);
-                    if (a.costPrice && a.quantity)
-                      detailsList.push(`Vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
-                  } else if (a.type === 'gold') {
-                    if (a.quantity) detailsList.push(`${formatNumberString(a.quantity)} chỉ`);
-                  }
-
                   let pnlMobile = null;
                   if (a.costPrice && a.costPrice > 0) {
                     const diff = a.amount - a.costPrice;
                     const pct = ((diff / a.costPrice) * 100).toFixed(1);
                     const isGain = diff >= 0;
                     pnlMobile = (
-                      <span className={`text-[9.5px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {isGain ? '+' : ''}{pct}% ({formatVND(diff)})
+                      <span className={`text-[10px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        ({isGain ? '+' : ''}{pct}%)
                       </span>
                     );
                   }
 
-                  let cashflowLine = null;
-                  if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
+                  // Sub-details under total amount (Left Column)
+                  let leftSubDetail = null;
+                  if (a.type === 'saving') {
+                    leftSubDetail = (
+                      <div className="text-[10.5px] text-slate-500 font-semibold mt-0.5">
+                        Kỳ hạn: {a.termMonths ? `${a.termMonths} tháng` : '—'} • Lãi: {a.rate ? `${a.rate}%/n` : '—'}
+                      </div>
+                    );
+                  } else if (a.type === 'stock') {
+                    leftSubDetail = (
+                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
+                        {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} CP</span>}
+                        {a.costPrice && a.quantity && (
+                          <span>• Vốn: {formatVND(Math.round(a.costPrice / a.quantity))}</span>
+                        )}
+                        {pnlMobile}
+                      </div>
+                    );
+                  } else if (a.type === 'gold') {
+                    leftSubDetail = (
+                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                        {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} chỉ</span>}
+                        {pnlMobile}
+                      </div>
+                    );
+                  } else if (a.type === 'bond' || a.type === 'peer_lending') {
+                    leftSubDetail = (
+                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5">
+                        {a.termMonths ? `Hạn: ${a.termMonths}T • ` : ''}{a.rate ? `Lãi: ${a.rate}%/n` : ''}
+                      </div>
+                    );
+                  } else if (a.type === 'realestate_accumulate' || a.type === 'realestate_rent') {
+                    leftSubDetail = (
+                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5">
+                        {a.startDate ? `Sở hữu từ: ${formatDateVN(a.startDate)}` : 'Bất động sản'}
+                      </div>
+                    );
+                  }
+
+                  // Right Column (Lãi / Dòng tiền / Ngày đáo hạn)
+                  let rightCol = null;
+                  if (a.type === 'saving') {
+                    const totalInterest = a.rate && a.termMonths ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12)) : 0;
+                    const matDate = formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths);
+                    rightCol = (
+                      <div className="text-right shrink-0">
+                        {totalInterest > 0 && (
+                          <div className="text-xs font-black text-blue-600 leading-tight">
+                            +{formatVND(totalInterest, isPrivacyMode)}
+                            <span className="text-[9px] font-normal text-slate-400 block sm:inline"> (lãi đáo hạn)</span>
+                          </div>
+                        )}
+                        {matDate && (
+                          <div className="text-[10.5px] text-slate-600 font-medium mt-0.5">
+                            Đáo hạn: <span className="font-bold text-slate-800">{matDate}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  } else if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
                     if (a.cashflow) {
-                      cashflowLine = (
-                        <div className="text-right">
-                          <span className="text-[8.5px] text-slate-400 block leading-tight">Dòng tiền thu</span>
-                          <span className="text-[11px] font-bold text-emerald-600 leading-tight">+{formatVND(a.cashflow, isPrivacyMode)}/th</span>
+                      rightCol = (
+                        <div className="text-right shrink-0">
+                          <div className="text-xs font-black text-emerald-600 leading-tight">
+                            +{formatVND(a.cashflow, isPrivacyMode)}/th
+                          </div>
+                          <div className="text-[9.5px] text-slate-400 font-medium mt-0.5">Dòng tiền thu</div>
                         </div>
                       );
                     }
                   } else if (a.type === 'stock' && a.quantity && a.divCash) {
                     const mDiv = Math.round((a.quantity * a.divCash) / 12);
-                    cashflowLine = (
-                      <div className="text-right">
-                        <span className="text-[8.5px] text-slate-400 block leading-tight">Cổ tức tiền</span>
-                        <span className="text-[11px] font-bold text-emerald-600 leading-tight">+{formatVND(mDiv, isPrivacyMode)}/th</span>
-                      </div>
-                    );
-                  } else if (a.type === 'saving' && a.rate && a.termMonths) {
-                    const totalInterest = Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12));
-                    const avgMonthly = Math.round(totalInterest / a.termMonths);
-                    cashflowLine = (
-                      <div className="text-right">
-                        <span className="text-[8.5px] text-slate-400 block leading-tight">Lãi đáo hạn</span>
-                        <span className="text-[11px] font-bold text-blue-600 leading-tight">+{formatVND(totalInterest, isPrivacyMode)}</span>
-                        <span className="text-[8.5px] text-slate-400 block leading-tight">≈ +{formatVND(avgMonthly, isPrivacyMode)}/th</span>
+                    rightCol = (
+                      <div className="text-right shrink-0">
+                        <div className="text-xs font-black text-emerald-600 leading-tight">
+                          +{formatVND(mDiv, isPrivacyMode)}/th
+                        </div>
+                        <div className="text-[9.5px] text-slate-400 font-medium mt-0.5">Cổ tức tiền</div>
                       </div>
                     );
                   }
 
+                  const matDate = a.type === 'saving' ? (formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths)) : null;
+
                   return (
-                    <div key={a.id} className="bg-slate-50/90 hover:bg-slate-50 rounded-xl border border-slate-200/90 p-2.5 space-y-1.5 transition shadow-2xs">
-                      {/* Row 1: STT, Tầng, Tên tài sản, Badge phân loại & Nút Sửa/Xoá */}
+                    <div key={a.id} className="bg-white hover:bg-slate-50/80 rounded-xl border border-slate-200/90 p-3 space-y-2 transition shadow-2xs">
+                      {/* Row 1: STT, Tầng, Tên tài sản, Phân loại & Nút Thao tác */}
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <span className="w-4 h-4 rounded bg-slate-200 text-slate-700 text-[9px] font-bold flex items-center justify-center shrink-0">
+                          <span className="w-4 h-4 rounded bg-slate-100 text-slate-600 text-[9px] font-black flex items-center justify-center shrink-0">
                             {index + 1}
                           </span>
                           <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${levelBadge}`}>
                             T{a.level}
                           </span>
                           <span className="text-xs font-bold text-slate-900 truncate">{a.name}</span>
-                          <span className="text-[10px] text-slate-500 font-normal truncate">({categoryName})</span>
+                          <span className="text-[10px] text-slate-400 font-normal truncate">({categoryName})</span>
                         </div>
 
                         {/* Action buttons */}
@@ -1270,34 +1312,32 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                         </div>
                       </div>
 
-                      {/* Row 2: Giá trị, PnL & Dòng tiền sinh lợi */}
-                      <div className="flex items-baseline justify-between pt-1 border-t border-slate-200/70 text-xs">
-                        <div className="flex items-baseline gap-1.5 flex-wrap">
-                          <span className="text-xs font-black text-slate-900">{formatVND(a.amount, isPrivacyMode)}</span>
-                          {pnlMobile}
+                      {/* Row 2: Bố cục 2 Cột khoa học (Tổng giá trị & Lãi/Đáo hạn) */}
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
+                        {/* Cột trái: Tổng tiền & Thông số gốc/kỳ hạn dưới giá trị */}
+                        <div className="min-w-0">
+                          <div className="text-sm font-black text-slate-900 tracking-tight leading-tight">
+                            {formatVND(a.amount, isPrivacyMode)}
+                          </div>
+                          {leftSubDetail}
                         </div>
-                        {cashflowLine}
+
+                        {/* Cột phải: Dòng tiền / Lãi & Hạn đáo hạn */}
+                        {rightCol}
                       </div>
 
-                      {/* Row 3: Các chỉ số chi tiết (Kỳ hạn, Lãi suất, Số lượng...) nằm gọn một hàng */}
-                      {(a.type === 'saving' || detailsList.length > 0 || a.updatedAt) && (
-                        <div className="pt-1 border-t border-slate-200/70 flex flex-wrap items-center gap-1 text-[9px]">
-                          {a.type === 'saving' && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-50 text-amber-900 border border-amber-200 font-bold whitespace-nowrap">
-                              <Calendar className="w-2.5 h-2.5 text-amber-700 shrink-0" />
-                              <span>Đáo hạn: {formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths) || 'Chưa đặt'}</span>
-                            </span>
-                          )}
-                          {detailsList.map((item, i) => (
-                            <span key={i} className="px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-medium whitespace-nowrap">
-                              {item}
-                            </span>
-                          ))}
-                          {a.updatedAt && (
-                            <span className="text-slate-400 text-[8.5px] ml-auto whitespace-nowrap">
-                              CN: {a.updatedAt}
-                            </span>
-                          )}
+                      {/* Row 3: Footer ngày gửi & ngày cập nhật tinh gọn (nếu có) */}
+                      {(a.startDate || a.updatedAt) && (
+                        <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[9px] text-slate-400">
+                          <span>
+                            {a.startDate && (
+                              <span className="inline-flex items-center gap-1 font-medium text-slate-500">
+                                <Calendar className="w-2.5 h-2.5 text-slate-400" />
+                                {a.type === 'saving' ? `Gửi ngày: ${formatDateVN(a.startDate)}` : `Bắt đầu: ${formatDateVN(a.startDate)}`}
+                              </span>
+                            )}
+                          </span>
+                          {a.updatedAt && <span>CN: {a.updatedAt}</span>}
                         </div>
                       )}
                     </div>
@@ -1338,18 +1378,28 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                       const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
 
                       const detailsList: string[] = [];
-                      if (a.type === 'saving' || a.type === 'bond' || a.type === 'peer_lending') {
+                      if (a.type === 'saving') {
+                        if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths} tháng`);
                         if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
-                        if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
+                      } else if (a.type === 'bond' || a.type === 'peer_lending') {
                         if (a.startDate) detailsList.push(`Bắt đầu: ${formatDateVN(a.startDate)}`);
+                        if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
+                        if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
                       } else if (a.type === 'stock') {
                         if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} CP`);
                         if (a.costPrice && a.quantity)
                           detailsList.push(`Giá vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
+                        if (a.startDate) detailsList.push(`Mua từ: ${formatDateVN(a.startDate)}`);
                       } else if (a.type === 'gold') {
                         if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} chỉ`);
+                        if (a.startDate) detailsList.push(`Mua từ: ${formatDateVN(a.startDate)}`);
                       } else if (a.type === 'realestate_rent') {
                         if (a.cashflow) detailsList.push(`Dòng tiền: +${formatVND(a.cashflow)}/tháng`);
+                        if (a.startDate) detailsList.push(`Sở hữu từ: ${formatDateVN(a.startDate)}`);
+                      } else if (a.type === 'realestate_accumulate') {
+                        if (a.startDate) detailsList.push(`Sở hữu từ: ${formatDateVN(a.startDate)}`);
+                      } else if (a.startDate) {
+                        detailsList.push(`Ngày: ${formatDateVN(a.startDate)}`);
                       }
 
                       let pnlHTML = null;
@@ -1405,11 +1455,20 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                             <div className="font-bold text-slate-900 text-xs">{a.name}</div>
                             <div className="text-[10px] text-slate-500 font-medium mt-0.5">{categoryName}</div>
                             {a.type === 'saving' && (
-                              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-300">
-                                <Calendar className="w-3 h-3 text-amber-700" />
-                                <span>Ngày đáo hạn:</span>
-                                <span className="text-amber-950 font-black">
-                                  {formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths) || 'Chưa đặt'}
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                {a.startDate && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                                    <Calendar className="w-3 h-3 text-blue-600" />
+                                    <span>Gửi từ:</span>
+                                    <span className="text-blue-950 font-bold">{formatDateVN(a.startDate)}</span>
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold bg-amber-50 text-amber-900 border border-amber-300">
+                                  <Calendar className="w-3 h-3 text-amber-700" />
+                                  <span>Ngày đáo hạn:</span>
+                                  <span className="text-amber-950 font-black">
+                                    {formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths) || 'Chưa đặt'}
+                                  </span>
                                 </span>
                               </div>
                             )}
@@ -1473,18 +1532,18 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
             <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 mr-1.5 sm:mr-2" />
             <span>Biến Động Tài Sản Ròng Thực Tế</span>
           </h3>
-          <div className="flex items-center space-x-1 bg-slate-100 p-0.5 sm:p-1 rounded-lg text-[10px] sm:text-[11px] font-bold">
-            {(['quarter', 'year', '3years', '5years'] as const).map((range) => (
-              <button
-                key={range}
-                onClick={() => setNetWorthRange(range)}
-                className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded transition cursor-pointer ${
-                  netWorthRange === range ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                {range === 'quarter' ? 'Quý' : range === 'year' ? 'Năm' : range === '3years' ? '3 Năm' : '5 Năm'}
-              </button>
-            ))}
+          <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs font-semibold shadow-2xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <select
+              value={netWorthRange}
+              onChange={(e) => setNetWorthRange(e.target.value as any)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+            >
+              <option value="quarter">Kỳ hạn: Quý Này</option>
+              <option value="year">Kỳ hạn: 1 Năm</option>
+              <option value="3years">Kỳ hạn: 3 Năm</option>
+              <option value="5years">Kỳ hạn: 5 Năm</option>
+            </select>
           </div>
         </div>
         <div className="h-44 sm:h-72">
