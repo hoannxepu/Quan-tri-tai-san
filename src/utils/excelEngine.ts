@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
+import ExcelJS from 'exceljs';
 import { Asset, AssetLevel, AssetType, Debt, DebtCategory, Goal, GoalGroup, DatabaseState } from '../types';
 
 export interface ParsedAssetItem {
@@ -345,11 +346,408 @@ const formatCurrency = (val: number) => {
   return val.toLocaleString('vi-VN') + ' đ';
 };
 
+// ExcelJS Borders
+const BORDER_THIN: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+  left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+  bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+  right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+};
+
+const BORDER_HEADER_REQUIRED: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+  left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+  bottom: { style: 'medium', color: { argb: 'FFDC2626' } },
+  right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+};
+
+const BORDER_HEADER_OPTIONAL: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+  left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+  bottom: { style: 'medium', color: { argb: 'FF64748B' } },
+  right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+};
+
+// Helper to trigger browser download from ExcelJS Workbook
+const saveWorkbookToBrowser = async (wb: ExcelJS.Workbook, fileName: string) => {
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
+// Sheet 1 Builder & Stylist
+const buildSheet1 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
+  ws.columns = [
+    { width: 24 }, // A: Mã ID
+    { width: 8 },  // B: STT
+    { width: 26 }, // C: Tầng Tháp (*)
+    { width: 32 }, // D: Phân Loại Tài Sản (*)
+    { width: 42 }, // E: Tên Tài Sản (*)
+    { width: 32 }, // F: Giá Trị Hiện Tại (*) (Rộng rãi tránh ###)
+    { width: 32 }, // G: Giá Vốn Ban Đầu (*)
+    { width: 22 }, // H: Lãi Suất %
+    { width: 22 }, // I: Ngày Bắt Đầu
+    { width: 18 }, // J: Kỳ Hạn
+    { width: 20 }, // K: Ngày Đáo Hạn
+    { width: 18 }, // L: Số Lượng
+    { width: 32 }, // M: Dòng Tiền
+    { width: 28 }, // N: Cổ Tức
+    { width: 50 }, // O: Ghi Chú
+  ];
+
+  rows.forEach((r) => ws.addRow(r));
+
+  // Row 1: Title
+  const r1 = ws.getRow(1);
+  r1.height = 26;
+  const cA1 = r1.getCell(1);
+  cA1.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF0F172A' } };
+  cA1.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 2: Summary
+  const r2 = ws.getRow(2);
+  r2.height = 24;
+  const cA2 = r2.getCell(1);
+  cA2.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+  cA2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+  cA2.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 3: Guide
+  const r3 = ws.getRow(3);
+  r3.height = 24;
+  const cA3 = r3.getCell(1);
+  cA3.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+  cA3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  cA3.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 4: Table Headers
+  const r4 = ws.getRow(4);
+  r4.height = 28;
+  for (let c = 1; c <= 15; c++) {
+    const cell = r4.getCell(c);
+    const val = String(cell.value || '');
+    const isReq = val.includes('(*)');
+    cell.font = {
+      name: 'Arial',
+      size: 10,
+      bold: true,
+      color: { argb: isReq ? 'FFDC2626' : 'FF1E293B' },
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isReq ? 'FFFEE2E2' : 'FFF1F5F9' },
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = isReq ? BORDER_HEADER_REQUIRED : BORDER_HEADER_OPTIONAL;
+  }
+
+  // Row 5+: Data rows
+  for (let rIdx = 5; rIdx <= rows.length; rIdx++) {
+    const row = ws.getRow(rIdx);
+    row.height = 22;
+    for (let cIdx = 1; cIdx <= 15; cIdx++) {
+      const cell = row.getCell(cIdx);
+      cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
+      cell.border = BORDER_THIN;
+
+      if (cIdx === 1 || cIdx === 2 || cIdx === 9 || cIdx === 11) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else if (cIdx === 6 || cIdx === 7 || cIdx === 10 || cIdx === 12 || cIdx === 13 || cIdx === 14) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '#,##0';
+        }
+      } else if (cIdx === 8) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '0.0%';
+        }
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    }
+  }
+
+  // Freeze 4 top rows natively & set autofilter
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'A5', showGridLines: true }];
+  ws.autoFilter = 'A4:O4';
+};
+
+// Sheet 2 Builder & Stylist
+const buildSheet2 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
+  ws.columns = [
+    { width: 36 }, // A: Mã ID / Khoản Thu Nhập
+    { width: 32 }, // B: STT / Số Tiền (VNĐ/tháng) (*) (Rộng 32 ký tự, xử lý triệt để lỗi ###)
+    { width: 34 }, // C: Phân Loại Khoản Nợ (*) / Ghi Chú
+    { width: 40 }, // D: Tên Khoản Nợ (*)
+    { width: 22 }, // E: Ngày Vay
+    { width: 32 }, // F: Tổng Nợ Gốc (*)
+    { width: 28 }, // G: Đã Trả Gốc
+    { width: 20 }, // H: Kỳ Hạn Vay
+    { width: 22 }, // I: Kỳ Chi Trả (*)
+    { width: 32 }, // J: Tiền Trả Trong Ưu Đãi (*)
+    { width: 24 }, // K: Lãi Suất Ưu Đãi
+    { width: 22 }, // L: Thời Hạn Ưu Đãi
+    { width: 22 }, // M: Ngày Hết Ưu Đãi
+    { width: 26 }, // N: Lãi Suất Thả Nổi
+    { width: 32 }, // O: Tiền Trả Sau Ưu Đãi
+    { width: 26 }, // P: Ngày Trả Hàng Tháng
+    { width: 20 }, // Q: Trạng Thái
+    { width: 48 }, // R: Ghi Chú
+  ];
+
+  rows.forEach((r) => ws.addRow(r));
+
+  // Row 1: Title
+  const r1 = ws.getRow(1);
+  r1.height = 26;
+  const cA1 = r1.getCell(1);
+  cA1.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF0F172A' } };
+  cA1.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 2: Summary
+  const r2 = ws.getRow(2);
+  r2.height = 24;
+  const cA2 = r2.getCell(1);
+  cA2.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+  cA2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+  cA2.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 3: Guide
+  const r3 = ws.getRow(3);
+  r3.height = 24;
+  const cA3 = r3.getCell(1);
+  cA3.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+  cA3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  cA3.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 4: Section 1 Header
+  const r4 = ws.getRow(4);
+  r4.height = 24;
+  const cA4 = r4.getCell(1);
+  cA4.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1D4ED8' } };
+  cA4.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+  cA4.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 5: Income Table Headers
+  const r5 = ws.getRow(5);
+  r5.height = 26;
+  for (let c = 1; c <= 3; c++) {
+    const cell = r5.getCell(c);
+    const val = String(cell.value || '');
+    const isReq = val.includes('(*)');
+    cell.font = {
+      name: 'Arial',
+      size: 10,
+      bold: true,
+      color: { argb: isReq ? 'FFDC2626' : 'FF1E293B' },
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isReq ? 'FFFEE2E2' : 'FFF1F5F9' },
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = isReq ? BORDER_HEADER_REQUIRED : BORDER_HEADER_OPTIONAL;
+  }
+
+  // Rows 6 & 7: Income Data Rows
+  for (let rIdx = 6; rIdx <= 7; rIdx++) {
+    const row = ws.getRow(rIdx);
+    row.height = 22;
+    for (let cIdx = 1; cIdx <= 3; cIdx++) {
+      const cell = row.getCell(cIdx);
+      cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
+      cell.border = BORDER_THIN;
+      if (cIdx === 2) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '#,##0';
+          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+        }
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    }
+  }
+
+  // Row 9: Section 2 Header
+  const r9 = ws.getRow(9);
+  r9.height = 24;
+  const cA9 = r9.getCell(1);
+  cA9.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1D4ED8' } };
+  cA9.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+  cA9.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 10: Debt Table Headers (18 cols)
+  const r10 = ws.getRow(10);
+  r10.height = 28;
+  for (let c = 1; c <= 18; c++) {
+    const cell = r10.getCell(c);
+    const val = String(cell.value || '');
+    const isReq = val.includes('(*)');
+    cell.font = {
+      name: 'Arial',
+      size: 10,
+      bold: true,
+      color: { argb: isReq ? 'FFDC2626' : 'FF1E293B' },
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isReq ? 'FFFEE2E2' : 'FFF1F5F9' },
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = isReq ? BORDER_HEADER_REQUIRED : BORDER_HEADER_OPTIONAL;
+  }
+
+  // Rows 11+: Debt Data rows
+  for (let rIdx = 11; rIdx <= rows.length; rIdx++) {
+    const row = ws.getRow(rIdx);
+    row.height = 22;
+    for (let cIdx = 1; cIdx <= 18; cIdx++) {
+      const cell = row.getCell(cIdx);
+      cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
+      cell.border = BORDER_THIN;
+
+      if (cIdx === 1 || cIdx === 2 || cIdx === 5 || cIdx === 13 || cIdx === 16 || cIdx === 17) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else if (cIdx === 6 || cIdx === 7 || cIdx === 8 || cIdx === 10 || cIdx === 12 || cIdx === 15) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '#,##0';
+        }
+      } else if (cIdx === 11 || cIdx === 14) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '0.0%';
+        }
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    }
+  }
+
+  // Freeze 10 top rows natively & set autofilter on row 10
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 10, topLeftCell: 'A11', activeCell: 'A11', showGridLines: true }];
+  ws.autoFilter = 'A10:R10';
+};
+
+// Sheet 3 Builder & Stylist
+const buildSheet3 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
+  ws.columns = [
+    { width: 24 }, // A: Mã ID
+    { width: 8 },  // B: STT
+    { width: 36 }, // C: Nhóm Mục Tiêu (*)
+    { width: 40 }, // D: Tên Mục Tiêu (*)
+    { width: 22 }, // E: Loại Mục Tiêu (*)
+    { width: 22 }, // F: Kênh Tài Sản
+    { width: 20 }, // G: Chu Kỳ Gom
+    { width: 28 }, // H: Ngày Chốt Mua
+    { width: 24 }, // I: Định Mức SL
+    { width: 14 }, // J: Đơn Vị
+    { width: 32 }, // K: Tiền Nạp Mỗi Kỳ
+    { width: 26 }, // L: Đã Tích Lũy
+    { width: 26 }, // M: Nợ Chỉ Tiêu
+    { width: 32 }, // N: Tổng Tiền Mục Tiêu
+    { width: 18 }, // O: Thời Hạn
+    { width: 18 }, // P: Trạng Thái
+    { width: 50 }, // Q: Ghi Chú
+  ];
+
+  rows.forEach((r) => ws.addRow(r));
+
+  // Row 1: Title
+  const r1 = ws.getRow(1);
+  r1.height = 26;
+  const cA1 = r1.getCell(1);
+  cA1.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF0F172A' } };
+  cA1.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 2: Summary
+  const r2 = ws.getRow(2);
+  r2.height = 24;
+  const cA2 = r2.getCell(1);
+  cA2.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+  cA2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+  cA2.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 3: Guide
+  const r3 = ws.getRow(3);
+  r3.height = 24;
+  const cA3 = r3.getCell(1);
+  cA3.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+  cA3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  cA3.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 4: Table Headers
+  const r4 = ws.getRow(4);
+  r4.height = 28;
+  for (let c = 1; c <= 17; c++) {
+    const cell = r4.getCell(c);
+    const val = String(cell.value || '');
+    const isReq = val.includes('(*)');
+    cell.font = {
+      name: 'Arial',
+      size: 10,
+      bold: true,
+      color: { argb: isReq ? 'FFDC2626' : 'FF1E293B' },
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isReq ? 'FFFEE2E2' : 'FFF1F5F9' },
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = isReq ? BORDER_HEADER_REQUIRED : BORDER_HEADER_OPTIONAL;
+  }
+
+  // Row 5+: Data rows
+  for (let rIdx = 5; rIdx <= rows.length; rIdx++) {
+    const row = ws.getRow(rIdx);
+    row.height = 22;
+    for (let cIdx = 1; cIdx <= 17; cIdx++) {
+      const cell = row.getCell(cIdx);
+      cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
+      cell.border = BORDER_THIN;
+
+      if (cIdx === 1 || cIdx === 2 || cIdx === 7 || cIdx === 8 || cIdx === 10 || cIdx === 15 || cIdx === 16) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else if (cIdx === 9 || cIdx === 11 || cIdx === 12 || cIdx === 13 || cIdx === 14) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '#,##0';
+        }
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    }
+  }
+
+  // Freeze 4 top rows natively & set autofilter
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'A5', showGridLines: true }];
+  ws.autoFilter = 'A4:Q4';
+};
+
 // =========================================================================
 // 1. TẢI FILE EXCEL MẪU CHUẨN (TOP SUMMARY + BỘ LỌC + NHẬP VÔ TẬN Ở DƯỚI)
 // =========================================================================
-export const downloadStandardExcelTemplate = () => {
-  const wb = XLSX.utils.book_new();
+export const downloadStandardExcelTemplate = async () => {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Tháp Tài Sản';
+  wb.lastModifiedBy = 'Tháp Tài Sản';
+  wb.created = new Date();
+  wb.modified = new Date();
 
   // SHEET 1: 1_Tai_San
   const ws1Data: any[][] = [
@@ -382,36 +780,8 @@ export const downloadStandardExcelTemplate = () => {
     ['TS-107', 7, 'Tầng 3: Rủi ro', 'Tiền mã hóa (Crypto)', 'Bitcoin (BTC) & Ethereum (ETH)', 120000000, 90000000, 0.25, '2024-10-01', 0, '', 1, 0, 0, 'Danh mục mạo hiểm chu kỳ mới'],
   ];
 
-  const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
-  ws1['!cols'] = [
-    { wch: 22 }, // Mã ID
-    { wch: 8 },  // STT
-    { wch: 22 }, // Tầng Tháp (*)
-    { wch: 28 }, // Phân Loại Tài Sản (*)
-    { wch: 38 }, // Tên Tài Sản (*)
-    { wch: 26 }, // Giá Trị Hiện Tại (*)
-    { wch: 26 }, // Giá Vốn (*)
-    { wch: 22 }, // Lãi Suất %
-    { wch: 20 }, // Ngày Bắt Đầu
-    { wch: 16 }, // Kỳ Hạn
-    { wch: 18 }, // Ngày Đáo Hạn
-    { wch: 14 }, // Số Lượng
-    { wch: 28 }, // Dòng Tiền
-    { wch: 26 }, // Cổ Tức
-    { wch: 45 }, // Ghi Chú
-  ];
-  // AutoFilter on row 4
-  ws1['!autofilter'] = { ref: 'A4:O4' };
-
-  for (let r = 4; r < ws1Data.length; r++) {
-    const cE = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
-    if (cE) cE.z = '#,##0';
-    const cF = ws1[XLSX.utils.encode_cell({ r, c: 6 })];
-    if (cF) cF.z = '#,##0';
-    const cG = ws1[XLSX.utils.encode_cell({ r, c: 7 })];
-    if (cG) cG.z = '0.0%';
-  }
-  XLSX.utils.book_append_sheet(wb, ws1, '1_Tai_San');
+  const ws1 = wb.addWorksheet('1_Tai_San');
+  buildSheet1(ws1, ws1Data);
 
   // SHEET 2: 2_Dong_Tien_Va_No
   const ws2Data: any[][] = [
@@ -427,7 +797,7 @@ export const downloadStandardExcelTemplate = () => {
     [
       'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Phân Loại Khoản Nợ (*)',
+      'Phân Loại Khoản NỢ (*)',
       'Tên Khoản Nợ / Chi Phí (*)',
       'Ngày Vay / Bắt Đầu',
       'Tổng Nợ Gốc (VNĐ) (*)',
@@ -451,29 +821,8 @@ export const downloadStandardExcelTemplate = () => {
     ['NO-205', 5, 'Loại 5: Chi tiêu sinh hoạt', 'Chi tiêu sinh hoạt gia đình', '2025-01-01', 0, 0, 1, 'Hàng tháng', 16000000, 0, 0, '', 0, 16000000, 1, 'Chưa tất toán', 'Ngân sách sinh hoạt tối thiểu'],
   ];
 
-  const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
-  ws2['!cols'] = [
-    { wch: 22 }, // Mã ID
-    { wch: 8 },  // STT
-    { wch: 28 }, // Phân Loại (*)
-    { wch: 34 }, // Tên Khoản Nợ (*)
-    { wch: 20 }, // Ngày Vay
-    { wch: 24 }, // Tổng Nợ Gốc (*)
-    { wch: 20 }, // Đã Trả Gốc
-    { wch: 18 }, // Kỳ Hạn
-    { wch: 18 }, // Kỳ Chi Trả (*)
-    { wch: 30 }, // Tiền Trả Trong Ưu Đãi (*)
-    { wch: 22 }, // Lãi Suất Ưu Đãi
-    { wch: 22 }, // Thời Hạn Ưu Đãi
-    { wch: 20 }, // Ngày Hết Ưu Đãi
-    { wch: 24 }, // Lãi Suất Thả Nổi
-    { wch: 28 }, // Tiền Trả Sau Ưu Đãi
-    { wch: 24 }, // Ngày Trả
-    { wch: 16 }, // Trạng Thái
-    { wch: 40 }, // Ghi Chú
-  ];
-  ws2['!autofilter'] = { ref: 'A10:R10' };
-  XLSX.utils.book_append_sheet(wb, ws2, '2_Dong_Tien_Va_No');
+  const ws2 = wb.addWorksheet('2_Dong_Tien_Va_No');
+  buildSheet2(ws2, ws2Data);
 
   // SHEET 3: 3_Muc_Tieu
   const ws3Data: any[][] = [
@@ -505,37 +854,22 @@ export const downloadStandardExcelTemplate = () => {
     ['MT-304', 4, 'Nhóm 4: Cột mốc tài chính / BĐS', 'Mua đất nền ven đô', 'Cột mốc', 'Khác', 3, 15, 0, 'VNĐ', 30000000, 300000000, 0, 1500000000, 4, 'active', 'Tích lũy vốn tự có chuẩn bị đầu tư'],
   ];
 
-  const ws3 = XLSX.utils.aoa_to_sheet(ws3Data);
-  ws3['!cols'] = [
-    { wch: 22 }, // Mã ID
-    { wch: 8 },  // STT
-    { wch: 32 }, // Nhóm Mục Tiêu (*)
-    { wch: 34 }, // Tên Mục Tiêu (*)
-    { wch: 18 }, // Loại Mục Tiêu (*)
-    { wch: 20 }, // Kênh Tài Sản
-    { wch: 18 }, // Chu Kỳ Gom
-    { wch: 26 }, // Ngày Chốt Mua
-    { wch: 22 }, // Định Mức SL
-    { wch: 12 }, // Đơn Vị
-    { wch: 24 }, // Tiền Nạp Mỗi Kỳ
-    { wch: 22 }, // Đã Tích Lũy
-    { wch: 22 }, // Nợ Chỉ Tiêu
-    { wch: 26 }, // Tổng Tiền Mục Tiêu
-    { wch: 16 }, // Thời Hạn
-    { wch: 16 }, // Trạng Thái
-    { wch: 45 }, // Ghi Chú
-  ];
-  ws3['!autofilter'] = { ref: 'A4:Q4' };
-  XLSX.utils.book_append_sheet(wb, ws3, '3_Muc_Tieu');
+  const ws3 = wb.addWorksheet('3_Muc_Tieu');
+  buildSheet3(ws3, ws3Data);
 
-  XLSX.writeFile(wb, 'Mau_Nhap_Thap_Tai_San_Chuan.xlsx');
+  await saveWorkbookToBrowser(wb, 'Mau_Nhap_Thap_Tai_San_Chuan.xlsx');
 };
 
 // =========================================================================
 // 2. XUẤT TOÀN BỘ CƠ SỞ DỮ LIỆU RA EXCEL (TOP SUMMARY + BỘ LỌC + DỮ LIỆU VÔ TẬN)
 // =========================================================================
-export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: string) => {
-  const wb = XLSX.utils.book_new();
+export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?: string) => {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Tháp Tài Sản';
+  wb.lastModifiedBy = 'Tháp Tài Sản';
+  wb.created = new Date();
+  wb.modified = new Date();
+
   const dateStr = new Date().toLocaleDateString('vi-VN');
 
   // SHEET 1: TÀI SẢN
@@ -597,43 +931,8 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     ]);
   });
 
-  const ws1 = XLSX.utils.aoa_to_sheet(rows1);
-  ws1['!cols'] = [
-    { wch: 22 }, // Mã ID
-    { wch: 8 },  // STT
-    { wch: 22 }, // Tầng Tháp (*)
-    { wch: 28 }, // Phân Loại (*)
-    { wch: 38 }, // Tên Tài Sản (*)
-    { wch: 26 }, // Giá Trị Hiện Tại (*)
-    { wch: 26 }, // Giá Vốn (*)
-    { wch: 22 }, // Lãi Suất %
-    { wch: 20 }, // Ngày Bắt Đầu
-    { wch: 16 }, // Kỳ Hạn
-    { wch: 18 }, // Ngày Đáo Hạn
-    { wch: 14 }, // Số Lượng
-    { wch: 28 }, // Dòng Tiền
-    { wch: 26 }, // Cổ Tức
-    { wch: 40 }, // Ghi Chú
-  ];
-  // AutoFilter on row 4
-  ws1['!autofilter'] = { ref: `A4:O4` };
-
-  for (let r = 4; r < rows1.length; r++) {
-    const cE = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
-    if (cE) cE.z = '#,##0';
-    const cF = ws1[XLSX.utils.encode_cell({ r, c: 6 })];
-    if (cF) cF.z = '#,##0';
-    const cG = ws1[XLSX.utils.encode_cell({ r, c: 7 })];
-    if (cG) cG.z = '0.0%';
-    const cL = ws1[XLSX.utils.encode_cell({ r, c: 11 })];
-    if (cL) cL.z = '#,##0';
-    const cM = ws1[XLSX.utils.encode_cell({ r, c: 12 })];
-    if (cM) cM.z = '#,##0';
-    const cN = ws1[XLSX.utils.encode_cell({ r, c: 13 })];
-    if (cN) cN.z = '#,##0';
-  }
-
-  XLSX.utils.book_append_sheet(wb, ws1, '1_Tai_San');
+  const ws1 = wb.addWorksheet('1_Tai_San');
+  buildSheet1(ws1, rows1);
 
   // SHEET 2: DÒNG TIỀN VÀ NỢ
   const totalDebtAmount = db.debts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
@@ -705,30 +1004,8 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     ]);
   });
 
-  const ws2 = XLSX.utils.aoa_to_sheet(rows2);
-  ws2['!cols'] = [
-    { wch: 22 }, // Mã ID
-    { wch: 8 },  // STT
-    { wch: 28 }, // Phân Loại (*)
-    { wch: 34 }, // Tên Khoản Nợ (*)
-    { wch: 20 }, // Ngày Vay
-    { wch: 24 }, // Tổng Nợ Gốc (*)
-    { wch: 20 }, // Đã Trả Gốc
-    { wch: 18 }, // Kỳ Hạn Vay
-    { wch: 18 }, // Kỳ Chi Trả (*)
-    { wch: 30 }, // Tiền Trả Trong Ưu Đãi (*)
-    { wch: 22 }, // Lãi Suất Ưu Đãi
-    { wch: 22 }, // Thời Hạn Ưu Đãi
-    { wch: 20 }, // Ngày Hết Ưu Đãi
-    { wch: 24 }, // Lãi Suất Thả Nổi
-    { wch: 28 }, // Tiền Trả Sau Ưu Đãi
-    { wch: 24 }, // Ngày Trả
-    { wch: 16 }, // Trạng Thái
-    { wch: 40 }, // Ghi Chú
-  ];
-  ws2['!autofilter'] = { ref: 'A10:R10' };
-
-  XLSX.utils.book_append_sheet(wb, ws2, '2_Dong_Tien_Va_No');
+  const ws2 = wb.addWorksheet('2_Dong_Tien_Va_No');
+  buildSheet2(ws2, rows2);
 
   // SHEET 3: MỤC TIÊU TÀI CHÍNH
   const rows3: any[][] = [
@@ -789,38 +1066,17 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     ]);
   });
 
-  const ws3 = XLSX.utils.aoa_to_sheet(rows3);
-  ws3['!cols'] = [
-    { wch: 22 }, // Mã ID
-    { wch: 8 },  // STT
-    { wch: 32 }, // Nhóm Mục Tiêu (*)
-    { wch: 34 }, // Tên Mục Tiêu (*)
-    { wch: 18 }, // Loại Mục Tiêu (*)
-    { wch: 20 }, // Kênh Tài Sản
-    { wch: 18 }, // Chu Kỳ Gom
-    { wch: 26 }, // Ngày Chốt Mua
-    { wch: 22 }, // Định Mức SL
-    { wch: 12 }, // Đơn Vị
-    { wch: 24 }, // Tiền Nạp Mỗi Kỳ
-    { wch: 22 }, // Đã Tích Lũy
-    { wch: 22 }, // Nợ Chỉ Tiêu
-    { wch: 26 }, // Tổng Tiền Mục Tiêu
-    { wch: 16 }, // Thời Hạn
-    { wch: 16 }, // Trạng Thái
-    { wch: 45 }, // Ghi Chú
-  ];
-  ws3['!autofilter'] = { ref: 'A4:Q4' };
-
-  XLSX.utils.book_append_sheet(wb, ws3, '3_Muc_Tieu');
+  const ws3 = wb.addWorksheet('3_Muc_Tieu');
+  buildSheet3(ws3, rows3);
 
   const safeName = (accountName || 'User').replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `Bao_Cao_Thap_Tai_San_${safeName}_${new Date().toISOString().split('T')[0]}.xlsx`;
-  XLSX.writeFile(wb, fileName);
+  await saveWorkbookToBrowser(wb, fileName);
 };
 
-export const exportAssetsToExcel = (assetsOrDb: Asset[] | DatabaseState, accountName?: string) => {
+export const exportAssetsToExcel = async (assetsOrDb: Asset[] | DatabaseState, accountName?: string) => {
   if ('assets' in (assetsOrDb as any) && 'debts' in (assetsOrDb as any)) {
-    exportFullDatabaseToExcel(assetsOrDb as DatabaseState, accountName);
+    await exportFullDatabaseToExcel(assetsOrDb as DatabaseState, accountName);
   } else {
     const miniDb: DatabaseState = {
       assets: assetsOrDb as Asset[],
@@ -831,7 +1087,7 @@ export const exportAssetsToExcel = (assetsOrDb: Asset[] | DatabaseState, account
       otherIncome: 0,
       lastUpdate: '',
     };
-    exportFullDatabaseToExcel(miniDb, accountName);
+    await exportFullDatabaseToExcel(miniDb, accountName);
   }
 };
 
