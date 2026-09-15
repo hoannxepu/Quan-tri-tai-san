@@ -113,14 +113,14 @@ export const parseLevelString = (val: string): AssetLevel => {
 // Map raw category string to internal AssetType
 export const parseAssetTypeString = (val: string, level: AssetLevel): AssetType => {
   const s = String(val || '').toLowerCase().trim();
-  if (s.includes('vàng') || s.includes('gold') || s.includes('sjc')) return 'gold';
-  if (s.includes('tiết kiệm') || s.includes('saving') || s.includes('sổ')) return 'saving';
-  if (s.includes('tiền mặt') || s.includes('cash') || s.includes('thanh toán') || s.includes('ngân hàng')) return 'cash';
-  if (s.includes('cổ phiếu') || s.includes('stock') || s.includes('chứng khoán')) return 'stock';
+  if (s.includes('vàng') || s.includes('gold') || s.includes('sjc') || s.includes('nhẫn')) return 'gold';
+  if (s.includes('tiết kiệm') || s.includes('saving') || s.includes('sổ') || s.includes('gửi')) return 'saving';
+  if (s.includes('tiền mặt') || s.includes('cash') || s.includes('thanh toán') || s.includes('ngân hàng') || s.includes('tk')) return 'cash';
+  if (s.includes('cổ phiếu') || s.includes('stock') || s.includes('chứng khoán') || s.includes('cp')) return 'stock';
   if (s.includes('trái phiếu') || s.includes('bond')) return 'bond';
   if (s.includes('cho thuê') || s.includes('dòng tiền')) return 'realestate_rent';
-  if (s.includes('đất nền') || s.includes('đất')) return 'realestate_land';
-  if (s.includes('bất động sản') || s.includes('bđs') || s.includes('nhà') || s.includes('căn hộ')) return 'realestate_live';
+  if (s.includes('đất nền') || s.includes('đất') || s.includes('mb') || s.includes('lô')) return 'realestate_land';
+  if (s.includes('bất động sản') || s.includes('bđs') || s.includes('nhà') || s.includes('căn hộ') || s.includes('cc') || s.includes('chung cư')) return 'realestate_live';
   if (s.includes('crypto') || s.includes('mã hóa') || s.includes('btc') || s.includes('eth') || s.includes('coin')) return 'crypto';
   if (s.includes('góp vốn') || s.includes('kinh doanh') || s.includes('doanh nghiệp')) return 'private_equity';
   if (s.includes('cho vay') || s.includes('lending') || s.includes('p2p')) return 'peer_lending';
@@ -265,7 +265,6 @@ export const parseDateValue = (val: any): string => {
   
   // Excel Serial Number (e.g. 45200)
   if (typeof val === 'number') {
-    // Excel base date (Dec 30 1899)
     const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
     if (!isNaN(dateObj.getTime())) {
       const y = dateObj.getUTCFullYear();
@@ -314,26 +313,21 @@ export const parseDateValue = (val: any): string => {
 const isHeaderRow = (row: any[]): boolean => {
   const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
   return (
-    rowStr.includes('tầng') ||
-    rowStr.includes('tháp') ||
-    rowStr.includes('giá trị') ||
-    rowStr.includes('tên tài sản') ||
-    rowStr.includes('danh mục') ||
-    rowStr.includes('mã phân loại') ||
-    rowStr.includes('mã id') ||
-    rowStr.includes('hướng dẫn') ||
+    rowStr.includes('báo cáo danh mục') ||
+    rowStr.includes('tổng giá trị') ||
+    rowStr.includes('tổng nợ') ||
+    rowStr.includes('hướng dẫn nhập') ||
+    rowStr.includes('lưu ý:') ||
     rowStr.includes('chủ tài khoản') ||
-    rowStr.includes('stt') ||
-    rowStr.includes('phân loại khoản nợ') ||
-    rowStr.includes('nhóm mục tiêu') ||
-    rowStr.includes('tên khoản nợ') ||
-    rowStr.includes('tên mục tiêu') ||
+    (rowStr.includes('tầng') && (rowStr.includes('giá trị') || rowStr.includes('tên') || rowStr.includes('phân loại'))) ||
+    (rowStr.includes('phân loại') && (rowStr.includes('nợ') || rowStr.includes('tên'))) ||
+    (rowStr.includes('nhóm') && rowStr.includes('mục tiêu')) ||
     rowStr.includes('[phần 1') ||
     rowStr.includes('[phần 2')
   );
 };
 
-// Check if a row is a summary / total row
+// Check if a row is a summary row
 const isSummaryRow = (row: any[]): boolean => {
   const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
   return (
@@ -341,68 +335,73 @@ const isSummaryRow = (row: any[]): boolean => {
     rowStr.includes('tong cong') ||
     rowStr.includes('tổng nợ') ||
     rowStr.includes('tong no') ||
-    rowStr.includes('tổng giá trị') ||
-    rowStr.includes('tổng số') ||
     rowStr.includes('đã tính toán tự động') ||
     rowStr.includes('tính toán tự động')
   );
 };
 
-// ==========================================
-// 1. TẠO VÀ TẢI FILE EXCEL MẪU CHUẨN (3 SHEET)
-// ==========================================
+// Helper to format currency number
+const formatCurrency = (val: number) => {
+  return val.toLocaleString('vi-VN') + ' đ';
+};
+
+// =========================================================================
+// 1. TẢI FILE EXCEL MẪU CHUẨN (TOP SUMMARY + BỘ LỌC + NHẬP VÔ TẬN Ở DƯỚI)
+// =========================================================================
 export const downloadStandardExcelTemplate = () => {
   const wb = XLSX.utils.book_new();
 
   // SHEET 1: 1_Tai_San
   const ws1Data: any[][] = [
-    ['DANH MỤC THÁP TÀI SẢN 3 TẦNG (FILE MẪU CHUẨN ĐẦY ĐỦ THÔNG TIN)'],
-    ['* Hướng dẫn: Giữ nguyên Mã ID khi sửa dòng cũ. Để trống Mã ID khi thêm mới. Ngày tháng định dạng YYYY-MM-DD hoặc DD/MM/YYYY.'],
-    [],
+    ['BÁO CÁO DANH MỤC THÁP TÀI SẢN 3 TẦNG (FILE MẪU CHUẨN)'],
+    ['[TỔNG HỢP]: Tổng Giá Trị = 5.290.000.000 đ | Tổng Vốn Ban Đầu = 4.490.000.000 đ | Số Lượng Mục = 7 | App tự động tính toán'],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Giữ nguyên Mã ID khi sửa dòng cũ. Để trống Mã ID khi thêm mới. Ngày tháng định dạng YYYY-MM-DD hoặc DD/MM/YYYY.'],
     [
-      'Mã ID',
+      'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Tầng Tháp',
-      'Mã Phân Loại',
-      'Tên Danh Mục / Tài Sản',
-      'Giá Trị Hiện Tại (VNĐ)',
-      'Giá Vốn Ban Đầu (VNĐ)',
-      'Lãi Suất / Sinh Lời (%/năm)',
-      'Ngày Gửi / Bắt Đầu',
+      'Tầng Tháp (*)',
+      'Phân Loại Tài Sản (*)',
+      'Tên Tài Sản / Danh Mục (*)',
+      'Giá Trị Hiện Tại (VNĐ) (*)',
+      'Giá Vốn Ban Đầu (VNĐ) (*)',
+      'Lãi Suất (%/năm)',
+      'Ngày Bắt Đầu / Mua',
       'Kỳ Hạn (Tháng)',
       'Ngày Đáo Hạn',
       'Số Lượng',
       'Dòng Tiền Thu Về (VNĐ/tháng)',
-      'Cổ Tức Tiền Mặt (VNĐ/CP/năm)',
+      'Cổ Tức (VNĐ/CP/năm)',
       'Ghi Chú / Kỳ Vọng',
     ],
-    ['TS-101', 1, 'Bảo vệ', 'Tiền gửi tiết kiệm', 'Sổ tiết kiệm Vietcombank 12T', 300000000, 300000000, 0.055, '2025-06-15', 12, '2026-06-15', 1, 0, 0, 'Lãi suất 5.5%/năm, kỳ hạn 12 tháng'],
-    ['TS-102', 2, 'Bảo vệ', 'Tiền mặt', 'Tài khoản Techcombank (Quỹ khẩn cấp)', 50000000, 50000000, 0, '2025-01-01', 0, '', 1, 0, 0, 'Dự phòng sinh hoạt 6 tháng'],
-    ['TS-103', 3, 'Bảo vệ', 'Vàng', 'Vàng miếng SJC 9999', 170000000, 150000000, 0.12, '2024-08-10', 0, '', 2, 0, 0, '2 lượng vàng tích trữ phòng vệ lạm phát'],
-    ['TS-104', 4, 'Tăng trưởng', 'Cổ phiếu', 'Cổ phiếu FPT Technology', 650000000, 500000000, 0.18, '2024-03-15', 0, '', 5000, 0, 2000, '5.000 CP, cổ tức 2.000 đ/CP/năm'],
-    ['TS-105', 5, 'Tăng trưởng', 'Bất động sản cho thuê', 'Căn hộ chung cư Vinhomes', 3800000000, 3200000000, 0.056, '2023-11-20', 0, '', 1, 18000000, 0, 'Cho thuê 18 triệu/tháng, tỷ suất 5.6%/năm'],
-    ['TS-106', 6, 'Tăng trưởng', 'Trái phiếu doanh nghiệp', 'Trái phiếu Masan Group', 200000000, 200000000, 0.092, '2024-05-10', 24, '2026-05-10', 200, 0, 0, 'Trái phiếu kỳ hạn 2 năm lãi 9.2%/năm'],
-    ['TS-107', 7, 'Rủi ro', 'Tiền mã hóa', 'Bitcoin (BTC) & Ethereum (ETH)', 120000000, 90000000, 0.25, '2024-10-01', 0, '', 1, 0, 0, 'Danh mục mạo hiểm chu kỳ mới'],
+    ['TS-101', 1, 'Tầng 1: Bảo vệ', 'Tiền gửi tiết kiệm', 'Sổ tiết kiệm Vietcombank 12T', 300000000, 300000000, 0.055, '2025-06-15', 12, '2026-06-15', 1, 0, 0, 'Lãi suất 5.5%/năm, kỳ hạn 12 tháng'],
+    ['TS-102', 2, 'Tầng 1: Bảo vệ', 'Tiền mặt & TK thanh toán', 'Tài khoản Techcombank (Quỹ khẩn cấp)', 50000000, 50000000, 0, '2025-01-01', 0, '', 1, 0, 0, 'Dự phòng sinh hoạt 6 tháng'],
+    ['TS-103', 3, 'Tầng 1: Bảo vệ', 'Vàng vật chất', 'Vàng miếng SJC 9999', 170000000, 150000000, 0.12, '2024-08-10', 0, '', 2, 0, 0, '2 lượng vàng tích trữ phòng vệ lạm phát'],
+    ['TS-104', 4, 'Tầng 2: Tăng trưởng', 'Cổ phiếu niêm yết', 'Cổ phiếu FPT Technology', 650000000, 500000000, 0.18, '2024-03-15', 0, '', 5000, 0, 2000, '5.000 CP, cổ tức 2.000 đ/CP/năm'],
+    ['TS-105', 5, 'Tầng 2: Tăng trưởng', 'Bất động sản cho thuê', 'Căn hộ chung cư Vinhomes', 3800000000, 3200000000, 0.056, '2023-11-20', 0, '', 1, 18000000, 0, 'Cho thuê 18 triệu/tháng, tỷ suất 5.6%/năm'],
+    ['TS-106', 6, 'Tầng 2: Tăng trưởng', 'Trái phiếu doanh nghiệp', 'Trái phiếu Masan Group', 200000000, 200000000, 0.092, '2024-05-10', 24, '2026-05-10', 200, 0, 0, 'Trái phiếu kỳ hạn 2 năm lãi 9.2%/năm'],
+    ['TS-107', 7, 'Tầng 3: Rủi ro', 'Tiền mã hóa (Crypto)', 'Bitcoin (BTC) & Ethereum (ETH)', 120000000, 90000000, 0.25, '2024-10-01', 0, '', 1, 0, 0, 'Danh mục mạo hiểm chu kỳ mới'],
   ];
 
   const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
   ws1['!cols'] = [
-    { wch: 12 }, // Mã ID
+    { wch: 22 }, // Mã ID
     { wch: 8 },  // STT
-    { wch: 18 }, // Tầng Tháp
-    { wch: 26 }, // Mã Phân Loại
-    { wch: 38 }, // Tên Tài Sản
-    { wch: 24 }, // Giá Trị Hiện Tại
-    { wch: 24 }, // Giá Vốn Ban Đầu
-    { wch: 24 }, // Lãi Suất %
+    { wch: 22 }, // Tầng Tháp (*)
+    { wch: 28 }, // Phân Loại Tài Sản (*)
+    { wch: 38 }, // Tên Tài Sản (*)
+    { wch: 26 }, // Giá Trị Hiện Tại (*)
+    { wch: 26 }, // Giá Vốn (*)
+    { wch: 22 }, // Lãi Suất %
     { wch: 20 }, // Ngày Bắt Đầu
     { wch: 16 }, // Kỳ Hạn
     { wch: 18 }, // Ngày Đáo Hạn
     { wch: 14 }, // Số Lượng
-    { wch: 26 }, // Dòng Tiền
+    { wch: 28 }, // Dòng Tiền
     { wch: 26 }, // Cổ Tức
     { wch: 45 }, // Ghi Chú
   ];
+  // AutoFilter on row 4
+  ws1['!autofilter'] = { ref: 'A4:O4' };
 
   for (let r = 4; r < ws1Data.length; r++) {
     const cE = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
@@ -416,32 +415,32 @@ export const downloadStandardExcelTemplate = () => {
 
   // SHEET 2: 2_Dong_Tien_Va_No
   const ws2Data: any[][] = [
-    ['THU NHẬP DÒNG TIỀN VÀ NGHĨA VỤ NỢ (FILE MẪU CHUẨN ĐẦY ĐỦ THÔNG TIN)'],
-    ['* Hướng dẫn: Điền thu nhập hàng tháng ở phần 1 và các khoản nợ / chi phí định kỳ ở phần 2. Giữ nguyên Mã ID khi sửa nợ cũ.'],
-    [],
+    ['THU NHẬP DÒNG TIỀN VÀ NGHĨA VỤ NỢ (FILE MẪU CHUẨN)'],
+    ['[TỔNG HỢP]: Tổng Nợ Gốc = 1.436.000.000 đ | Lương = 35.000.000 đ/tháng | Thu nhập khác = 15.000.000 đ/tháng | Tổng nợ: 5 khoản'],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Điền thu nhập ở phần 1, các khoản nợ ở phần 2. Giữ nguyên Mã ID khi sửa nợ cũ.'],
     ['[PHẦN 1: THU NHẬP HÀNG THÁNG]'],
-    ['Khoản Thu Nhập', 'Số Tiền (VNĐ/tháng)', 'Ghi Chú'],
+    ['Khoản Thu Nhập (*)', 'Số Tiền (VNĐ/tháng) (*)', 'Ghi Chú'],
     ['Lương chủ động hằng tháng', 35000000, 'Thu nhập chính sau thuế'],
     ['Thu nhập thụ động / ngoài khác', 15000000, 'Dòng tiền cho thuê + freelance'],
     [],
     ['[PHẦN 2: DANH SÁCH CÁC KHOẢN NỢ & CHI PHÍ ĐỊNH KỲ]'],
     [
-      'Mã ID',
+      'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Phân Loại Khoản Nợ',
-      'Tên Khoản Nợ / Chi Phí',
+      'Phân Loại Khoản Nợ (*)',
+      'Tên Khoản Nợ / Chi Phí (*)',
       'Ngày Vay / Bắt Đầu',
-      'Tổng Nợ Gốc (VNĐ)',
+      'Tổng Nợ Gốc (VNĐ) (*)',
       'Đã Trả Gốc (VNĐ)',
       'Kỳ Hạn Vay (Tháng)',
-      'Kỳ Chi Trả',
-      'Tiền Trả Trong Ưu Đãi (VNĐ/kỳ)',
+      'Kỳ Chi Trả (*)',
+      'Tiền Trả Hàng Tháng / Trong Ưu Đãi (VNĐ) (*)',
       'Lãi Suất Ưu Đãi (%/năm)',
       'Thời Hạn Ưu Đãi (Tháng)',
       'Ngày Hết Ưu Đãi Lãi',
       'Lãi Suất Sau Ưu Đãi (%/năm)',
-      'Tiền Trả Sau Ưu Đãi (VNĐ/kỳ)',
-      'Ngày Trả Trong Tháng (1-31)',
+      'Tiền Trả Sau Ưu Đãi (VNĐ)',
+      'Ngày Trả Hàng Tháng (1-31)',
       'Trạng Thái',
       'Ghi Chú',
     ],
@@ -454,38 +453,39 @@ export const downloadStandardExcelTemplate = () => {
 
   const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
   ws2['!cols'] = [
-    { wch: 12 }, // Mã ID
+    { wch: 22 }, // Mã ID
     { wch: 8 },  // STT
-    { wch: 26 }, // Phân Loại
-    { wch: 34 }, // Tên Khoản Nợ
+    { wch: 28 }, // Phân Loại (*)
+    { wch: 34 }, // Tên Khoản Nợ (*)
     { wch: 20 }, // Ngày Vay
-    { wch: 22 }, // Tổng Nợ Gốc
+    { wch: 24 }, // Tổng Nợ Gốc (*)
     { wch: 20 }, // Đã Trả Gốc
     { wch: 18 }, // Kỳ Hạn
-    { wch: 18 }, // Kỳ Chi Trả
-    { wch: 28 }, // Tiền Trả Trong Ưu Đãi
+    { wch: 18 }, // Kỳ Chi Trả (*)
+    { wch: 30 }, // Tiền Trả Trong Ưu Đãi (*)
     { wch: 22 }, // Lãi Suất Ưu Đãi
     { wch: 22 }, // Thời Hạn Ưu Đãi
     { wch: 20 }, // Ngày Hết Ưu Đãi
     { wch: 24 }, // Lãi Suất Thả Nổi
     { wch: 28 }, // Tiền Trả Sau Ưu Đãi
-    { wch: 22 }, // Ngày Trả
+    { wch: 24 }, // Ngày Trả
     { wch: 16 }, // Trạng Thái
     { wch: 40 }, // Ghi Chú
   ];
+  ws2['!autofilter'] = { ref: 'A10:R10' };
   XLSX.utils.book_append_sheet(wb, ws2, '2_Dong_Tien_Va_No');
 
   // SHEET 3: 3_Muc_Tieu
   const ws3Data: any[][] = [
-    ['KẾ HOẠCH MỤC TIÊU TÀI CHÍNH 4 NHÓM (FILE MẪU CHUẨN ĐẦY ĐỦ THÔNG TIN)'],
-    ['* Hướng dẫn: Điền kế hoạch mục tiêu. Giữ nguyên Mã ID khi sửa mục tiêu cũ. Để trống Mã ID khi thêm mới.'],
-    [],
+    ['KẾ HOẠCH MỤC TIÊU TÀI CHÍNH 4 NHÓM (FILE MẪU CHUẨN)'],
+    ['[TỔNG HỢP]: Tổng số 4 mục tiêu | Tích sản DCA & Cột mốc tích lũy tài chính lớn | App tự động tính toán'],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Giữ nguyên Mã ID khi sửa mục tiêu cũ. Để trống Mã ID khi thêm mới.'],
     [
-      'Mã ID',
+      'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Nhóm Mục Tiêu',
-      'Tên Mục Tiêu',
-      'Loại Mục Tiêu',
+      'Nhóm Mục Tiêu (*)',
+      'Tên Mục Tiêu (*)',
+      'Loại Mục Tiêu (*)',
       'Kênh Tài Sản',
       'Chu Kỳ Gom (Tháng)',
       'Ngày Chốt Mua Trong Tháng',
@@ -507,11 +507,11 @@ export const downloadStandardExcelTemplate = () => {
 
   const ws3 = XLSX.utils.aoa_to_sheet(ws3Data);
   ws3['!cols'] = [
-    { wch: 12 }, // Mã ID
+    { wch: 22 }, // Mã ID
     { wch: 8 },  // STT
-    { wch: 30 }, // Nhóm Mục Tiêu
-    { wch: 34 }, // Tên Mục Tiêu
-    { wch: 18 }, // Loại Mục Tiêu
+    { wch: 32 }, // Nhóm Mục Tiêu (*)
+    { wch: 34 }, // Tên Mục Tiêu (*)
+    { wch: 18 }, // Loại Mục Tiêu (*)
     { wch: 20 }, // Kênh Tài Sản
     { wch: 18 }, // Chu Kỳ Gom
     { wch: 26 }, // Ngày Chốt Mua
@@ -525,39 +525,42 @@ export const downloadStandardExcelTemplate = () => {
     { wch: 16 }, // Trạng Thái
     { wch: 45 }, // Ghi Chú
   ];
+  ws3['!autofilter'] = { ref: 'A4:Q4' };
   XLSX.utils.book_append_sheet(wb, ws3, '3_Muc_Tieu');
 
   XLSX.writeFile(wb, 'Mau_Nhap_Thap_Tai_San_Chuan.xlsx');
 };
 
-// ==========================================
-// 2. XUẤT TOÀN BỘ CƠ SỞ DỮ LIỆU THỰC TẾ RA EXCEL (3 SHEET VỚI MÃ ID & STT CHUẨN)
-// ==========================================
+// =========================================================================
+// 2. XUẤT TOÀN BỘ CƠ SỞ DỮ LIỆU RA EXCEL (TOP SUMMARY + BỘ LỌC + DỮ LIỆU VÔ TẬN)
+// =========================================================================
 export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: string) => {
   const wb = XLSX.utils.book_new();
   const dateStr = new Date().toLocaleDateString('vi-VN');
 
   // SHEET 1: TÀI SẢN
   const totalAssetValue = db.assets.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+  const totalCostPrice = db.assets.reduce((sum, a) => sum + (Number(a.costPrice || a.amount) || 0), 0);
+
   const rows1: any[][] = [
     ['BÁO CÁO DANH MỤC THÁP TÀI SẢN 3 TẦNG'],
-    [`Chủ tài khoản: ${accountName || 'Cá nhân'} | Ngày xuất: ${dateStr} | Tổng số tài sản: ${db.assets.length}`],
-    ['* Lưu ý: Cột Mã ID dùng để đồng bộ sửa đổi chính xác vào ứng dụng. Khi thêm mới, hãy để trống cột Mã ID.'],
+    [`[TỔNG HỢP]: Tổng Giá Trị = ${formatCurrency(totalAssetValue)} | Tổng Giá Vốn = ${formatCurrency(totalCostPrice)} | Tổng Số Mục = ${db.assets.length} | Chủ TK: ${accountName || 'Cá nhân'} | Ngày: ${dateStr}`],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Giữ nguyên Mã ID khi sửa dòng cũ. Để trống Mã ID khi thêm mới. Phía dưới có thể nhập vô tận mà không bị vướng tổng.'],
     [
-      'Mã ID',
+      'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Tầng Tháp',
-      'Mã Phân Loại',
-      'Tên Danh Mục / Tài Sản',
-      'Giá Trị Hiện Tại (VNĐ)',
-      'Giá Vốn Ban Đầu (VNĐ)',
-      'Lãi Suất / Sinh Lời (%/năm)',
-      'Ngày Gửi / Bắt Đầu',
+      'Tầng Tháp (*)',
+      'Phân Loại Tài Sản (*)',
+      'Tên Tài Sản / Danh Mục (*)',
+      'Giá Trị Hiện Tại (VNĐ) (*)',
+      'Giá Vốn Ban Đầu (VNĐ) (*)',
+      'Lãi Suất (%/năm)',
+      'Ngày Bắt Đầu / Mua',
       'Kỳ Hạn (Tháng)',
       'Ngày Đáo Hạn',
       'Số Lượng',
       'Dòng Tiền Thu Về (VNĐ/tháng)',
-      'Cổ Tức Tiền Mặt (VNĐ/CP/năm)',
+      'Cổ Tức (VNĐ/CP/năm)',
       'Ghi Chú / Kỳ Vọng',
     ],
   ];
@@ -594,44 +597,26 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     ]);
   });
 
-  // Total summary row at bottom
-  rows1.push([]);
-  rows1.push([
-    '',
-    '',
-    'TỔNG CỘNG',
-    '',
-    `Tổng giá trị toàn bộ ${db.assets.length} tài sản`,
-    totalAssetValue,
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    'Đã tính toán tự động',
-  ]);
-
   const ws1 = XLSX.utils.aoa_to_sheet(rows1);
   ws1['!cols'] = [
-    { wch: 14 }, // Mã ID
+    { wch: 22 }, // Mã ID
     { wch: 8 },  // STT
-    { wch: 22 }, // Tầng Tháp
-    { wch: 26 }, // Mã Phân Loại
-    { wch: 38 }, // Tên Tài Sản
-    { wch: 24 }, // Giá Trị Hiện Tại
-    { wch: 24 }, // Giá Vốn
-    { wch: 24 }, // Lãi Suất %
+    { wch: 22 }, // Tầng Tháp (*)
+    { wch: 28 }, // Phân Loại (*)
+    { wch: 38 }, // Tên Tài Sản (*)
+    { wch: 26 }, // Giá Trị Hiện Tại (*)
+    { wch: 26 }, // Giá Vốn (*)
+    { wch: 22 }, // Lãi Suất %
     { wch: 20 }, // Ngày Bắt Đầu
     { wch: 16 }, // Kỳ Hạn
     { wch: 18 }, // Ngày Đáo Hạn
     { wch: 14 }, // Số Lượng
-    { wch: 26 }, // Dòng Tiền
+    { wch: 28 }, // Dòng Tiền
     { wch: 26 }, // Cổ Tức
-    { wch: 35 }, // Ghi Chú
+    { wch: 40 }, // Ghi Chú
   ];
+  // AutoFilter on row 4
+  ws1['!autofilter'] = { ref: `A4:O4` };
 
   for (let r = 4; r < rows1.length; r++) {
     const cE = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
@@ -652,33 +637,35 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
 
   // SHEET 2: DÒNG TIỀN VÀ NỢ
   const totalDebtAmount = db.debts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  const totalMonthlyDebt = db.debts.reduce((sum, d) => sum + (Number(d.monthlyBefore) || 0), 0);
+
   const rows2: any[][] = [
     ['BÁO CÁO DÒNG TIỀN VÀ NGHĨA VỤ NỢ'],
-    [`Chủ tài khoản: ${accountName || 'Cá nhân'} | Ngày xuất: ${dateStr} | Tổng số khoản nợ: ${db.debts.length}`],
-    ['* Lưu ý: Cột Mã ID dùng để đồng bộ sửa đổi chính xác. Khi thêm khoản nợ mới, hãy để trống cột Mã ID.'],
+    [`[TỔNG HỢP]: Tổng Nợ Gốc = ${formatCurrency(totalDebtAmount)} | Tổng Trả/Tháng = ${formatCurrency(totalMonthlyDebt)} | Lương = ${formatCurrency(db.salaryIncome || 0)} | Thu Nhập Khác = ${formatCurrency(db.otherIncome || 0)} | Số Khoản = ${db.debts.length}`],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Điền thu nhập ở phần 1, các khoản nợ ở phần 2. Giữ nguyên Mã ID khi sửa nợ cũ.'],
     ['[PHẦN 1: THU NHẬP HÀNG THÁNG]'],
-    ['Khoản Thu Nhập', 'Số Tiền (VNĐ/tháng)', 'Ghi Chú'],
+    ['Khoản Thu Nhập (*)', 'Số Tiền (VNĐ/tháng) (*)', 'Ghi Chú'],
     ['Lương chủ động hằng tháng', db.salaryIncome || 0, 'Thu nhập chính sau thuế'],
     ['Thu nhập thụ động / ngoài khác', db.otherIncome || 0, 'Dòng tiền kinh doanh, cho thuê, freelance'],
     [],
     ['[PHẦN 2: DANH SÁCH CÁC KHOẢN NỢ & CHI PHÍ ĐỊNH KỲ]'],
     [
-      'Mã ID',
+      'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Phân Loại Khoản Nợ',
-      'Tên Khoản Nợ / Chi Phí',
+      'Phân Loại Khoản Nợ (*)',
+      'Tên Khoản Nợ / Chi Phí (*)',
       'Ngày Vay / Bắt Đầu',
-      'Tổng Nợ Gốc (VNĐ)',
+      'Tổng Nợ Gốc (VNĐ) (*)',
       'Đã Trả Gốc (VNĐ)',
       'Kỳ Hạn Vay (Tháng)',
-      'Kỳ Chi Trả',
-      'Tiền Trả Trong Ưu Đãi (VNĐ/kỳ)',
+      'Kỳ Chi Trả (*)',
+      'Tiền Trả Hàng Tháng / Trong Ưu Đãi (VNĐ) (*)',
       'Lãi Suất Ưu Đãi (%/năm)',
       'Thời Hạn Ưu Đãi (Tháng)',
       'Ngày Hết Ưu Đãi Lãi',
       'Lãi Suất Sau Ưu Đãi (%/năm)',
-      'Tiền Trả Sau Ưu Đãi (VNĐ/kỳ)',
-      'Ngày Trả Trong Tháng (1-31)',
+      'Tiền Trả Sau Ưu Đãi (VNĐ)',
+      'Ngày Trả Hàng Tháng (1-31)',
       'Trạng Thái',
       'Ghi Chú',
     ],
@@ -718,63 +705,42 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     ]);
   });
 
-  rows2.push([]);
-  rows2.push([
-    '',
-    '',
-    'TỔNG NỢ GỐC',
-    '',
-    '',
-    totalDebtAmount,
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    'Đã tính toán tự động',
-  ]);
-
   const ws2 = XLSX.utils.aoa_to_sheet(rows2);
   ws2['!cols'] = [
-    { wch: 14 }, // Mã ID
+    { wch: 22 }, // Mã ID
     { wch: 8 },  // STT
-    { wch: 26 }, // Phân Loại
-    { wch: 34 }, // Tên Khoản Nợ
+    { wch: 28 }, // Phân Loại (*)
+    { wch: 34 }, // Tên Khoản Nợ (*)
     { wch: 20 }, // Ngày Vay
-    { wch: 22 }, // Tổng Nợ Gốc
+    { wch: 24 }, // Tổng Nợ Gốc (*)
     { wch: 20 }, // Đã Trả Gốc
     { wch: 18 }, // Kỳ Hạn Vay
-    { wch: 18 }, // Kỳ Chi Trả
-    { wch: 28 }, // Tiền Trả Trong Ưu Đãi
+    { wch: 18 }, // Kỳ Chi Trả (*)
+    { wch: 30 }, // Tiền Trả Trong Ưu Đãi (*)
     { wch: 22 }, // Lãi Suất Ưu Đãi
     { wch: 22 }, // Thời Hạn Ưu Đãi
     { wch: 20 }, // Ngày Hết Ưu Đãi
     { wch: 24 }, // Lãi Suất Thả Nổi
     { wch: 28 }, // Tiền Trả Sau Ưu Đãi
-    { wch: 22 }, // Ngày Trả
+    { wch: 24 }, // Ngày Trả
     { wch: 16 }, // Trạng Thái
-    { wch: 35 }, // Ghi Chú
+    { wch: 40 }, // Ghi Chú
   ];
+  ws2['!autofilter'] = { ref: 'A10:R10' };
 
   XLSX.utils.book_append_sheet(wb, ws2, '2_Dong_Tien_Va_No');
 
   // SHEET 3: MỤC TIÊU TÀI CHÍNH
   const rows3: any[][] = [
     ['BÁO CÁO MỤC TIÊU TÀI CHÍNH 4 NHÓM'],
-    [`Chủ tài khoản: ${accountName || 'Cá nhân'} | Ngày xuất: ${dateStr} | Tổng số mục tiêu: ${db.goals.length}`],
-    ['* Lưu ý: Cột Mã ID dùng để đồng bộ sửa đổi chính xác. Khi thêm mục tiêu mới, hãy để trống cột Mã ID.'],
+    [`[TỔNG HỢP]: Tổng Số Mục Tiêu = ${db.goals.length} | Tích sản DCA & Cột mốc tích lũy tài chính lớn | Chủ TK: ${accountName || 'Cá nhân'} | Ngày: ${dateStr}`],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Giữ nguyên Mã ID khi sửa mục tiêu cũ. Để trống Mã ID khi thêm mới.'],
     [
-      'Mã ID',
+      'Mã ID (Trống=Thêm mới)',
       'STT',
-      'Nhóm Mục Tiêu',
-      'Tên Mục Tiêu',
-      'Loại Mục Tiêu',
+      'Nhóm Mục Tiêu (*)',
+      'Tên Mục Tiêu (*)',
+      'Loại Mục Tiêu (*)',
       'Kênh Tài Sản',
       'Chu Kỳ Gom (Tháng)',
       'Ngày Chốt Mua Trong Tháng',
@@ -825,11 +791,11 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
 
   const ws3 = XLSX.utils.aoa_to_sheet(rows3);
   ws3['!cols'] = [
-    { wch: 14 }, // Mã ID
+    { wch: 22 }, // Mã ID
     { wch: 8 },  // STT
-    { wch: 30 }, // Nhóm Mục Tiêu
-    { wch: 34 }, // Tên Mục Tiêu
-    { wch: 18 }, // Loại Mục Tiêu
+    { wch: 32 }, // Nhóm Mục Tiêu (*)
+    { wch: 34 }, // Tên Mục Tiêu (*)
+    { wch: 18 }, // Loại Mục Tiêu (*)
     { wch: 20 }, // Kênh Tài Sản
     { wch: 18 }, // Chu Kỳ Gom
     { wch: 26 }, // Ngày Chốt Mua
@@ -843,6 +809,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     { wch: 16 }, // Trạng Thái
     { wch: 45 }, // Ghi Chú
   ];
+  ws3['!autofilter'] = { ref: 'A4:Q4' };
 
   XLSX.utils.book_append_sheet(wb, ws3, '3_Muc_Tieu');
 
@@ -868,9 +835,9 @@ export const exportAssetsToExcel = (assetsOrDb: Asset[] | DatabaseState, account
   }
 };
 
-// ==========================================
-// 3. PARSER THÔNG MINH CHO CẢ 3 PHẦN DỮ LIỆU (HỖ TRỢ MÃ ID & LOẠI BỎ TỔNG CỘNG)
-// ==========================================
+// =========================================================================
+// 3. PARSER THÔNG MINH (LIÊN THÔNG GIÁ TRỊ - GIÁ VỐN & ĐỒNG BỘ MÃ ID)
+// =========================================================================
 
 // Parse Sheet 1: Assets
 export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
@@ -883,16 +850,16 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
   for (const row of rawRows) {
     if (!row || row.length === 0) continue;
     const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
-    if (rowStr.includes('tầng') && (rowStr.includes('giá trị') || rowStr.includes('tên') || rowStr.includes('mã'))) {
+    if (rowStr.includes('tầng') && (rowStr.includes('giá trị') || rowStr.includes('tên') || rowStr.includes('phân loại') || rowStr.includes('mã'))) {
       row.forEach((cell, idx) => {
         const lower = String(cell || '').toLowerCase().trim();
-        if (lower.includes('mã id') || lower === 'id') colMap.id = idx;
+        if (lower.includes('mã id') || lower === 'id' || lower.includes('trống=thêm')) colMap.id = idx;
         else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
         else if (lower.includes('tầng') || lower.includes('tháp')) colMap.level = idx;
         else if (lower.includes('phân loại') || (lower.includes('mã') && !lower.includes('id'))) colMap.type = idx;
         else if (lower.includes('tên')) colMap.name = idx;
         else if (lower.includes('hiện tại') || lower.includes('giá trị')) colMap.amount = idx;
-        else if (lower.includes('vốn')) colMap.costPrice = idx;
+        else if (lower.includes('vốn') || lower.includes('ban đầu')) colMap.costPrice = idx;
         else if (lower.includes('lãi')) colMap.rate = idx;
         else if (lower.includes('bắt đầu') || lower.includes('ngày gửi') || lower.includes('ngày mua')) colMap.startDate = idx;
         else if (lower.includes('kỳ hạn')) colMap.termMonths = idx;
@@ -928,7 +895,7 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     let colDivCash: any = 0;
     let colNote = '';
 
-    if (headerFound && (colMap.name !== undefined || colMap.amount !== undefined)) {
+    if (headerFound && (colMap.name !== undefined || colMap.amount !== undefined || colMap.costPrice !== undefined)) {
       colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colLevel = colMap.level !== undefined ? String(row[colMap.level] || '') : '';
       colType = colMap.type !== undefined ? String(row[colMap.type] || '') : '';
@@ -985,15 +952,23 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     }
 
     const cleanName = colName.trim();
-    const amountNum = parseAmountValue(colAmount);
-    if (!cleanName && amountNum <= 0) continue;
+    let rawAmountNum = parseAmountValue(colAmount);
+    let rawCostPriceNum = parseAmountValue(colCostPrice);
+
+    // KEY IMPROVEMENT: Smart Fallback between Current Value and Cost Price
+    if (rawAmountNum === 0 && rawCostPriceNum > 0) {
+      rawAmountNum = rawCostPriceNum;
+    } else if (rawCostPriceNum === 0 && rawAmountNum > 0) {
+      rawCostPriceNum = rawAmountNum;
+    }
+
+    if (!cleanName && rawAmountNum <= 0) continue;
     if (cleanName.toLowerCase().includes('tổng cộng') || cleanName.toLowerCase().includes('tong cong')) continue;
 
     const parsedId = parseIdValue(colId);
     const level = parseLevelString(colLevel || colType || cleanName);
     const assetType = parseAssetTypeString(colType || colName, level);
 
-    const costPriceNum = colCostPrice ? parseAmountValue(colCostPrice) : amountNum;
     const rateNum = colRate ? parseRateValue(colRate) : 0;
     const qtyNum = colQty ? parseQuantityValue(colQty) : 1;
     const cashflowNum = colCashflow ? parseAmountValue(colCashflow) : 0;
@@ -1008,8 +983,8 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
       type: assetType,
       typeName: getAssetTypeLabel(assetType),
       name: cleanName || `Tài sản ${results.length + 1}`,
-      amount: amountNum,
-      costPrice: costPriceNum,
+      amount: rawAmountNum,
+      costPrice: rawCostPriceNum,
       rate: rateNum > 0 ? rateNum : undefined,
       startDate: startDateVal || undefined,
       termMonths: termNum && termNum > 0 ? termNum : undefined,
@@ -1039,7 +1014,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     if (rowStr.includes('phân loại') && (rowStr.includes('nợ') || rowStr.includes('tên') || rowStr.includes('mã'))) {
       row.forEach((cell, idx) => {
         const lower = String(cell || '').toLowerCase().trim();
-        if (lower.includes('mã id') || lower === 'id') colMap.id = idx;
+        if (lower.includes('mã id') || lower === 'id' || lower.includes('trống=thêm')) colMap.id = idx;
         else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
         else if (lower.includes('phân loại')) colMap.category = idx;
         else if (lower.includes('tên')) colMap.name = idx;
@@ -1048,15 +1023,12 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
         else if (lower.includes('đã trả')) colMap.paidPrincipal = idx;
         else if (lower.includes('kỳ hạn')) colMap.termMonths = idx;
         else if (lower.includes('kỳ chi trả') || lower.includes('chu kỳ')) colMap.frequency = idx;
-        else if (lower.includes('trong ưu đãi')) colMap.monthlyBefore = idx;
+        else if (lower.includes('trong ưu đãi') || lower.includes('hàng tháng')) colMap.monthlyBefore = idx;
         else if (lower.includes('lãi suất ưu đãi') || lower.includes('ưu đãi (%')) colMap.promoRate = idx;
         else if (lower.includes('thời hạn ưu đãi') || lower.includes('tháng ưu đãi')) colMap.promoMonths = idx;
         else if (lower.includes('hết ưu đãi')) colMap.promoEndDate = idx;
         else if (lower.includes('sau ưu đãi (%') || lower.includes('thả nổi')) colMap.normalRate = idx;
         else if (lower.includes('sau ưu đãi (vnđ') || lower.includes('tiền trả sau ưu đãi')) colMap.monthlyAfter = idx;
-        else if (lower.includes('tiền trả hàng tháng') || lower.includes('tiền trả')) {
-          if (colMap.monthlyBefore === undefined) colMap.monthlyBefore = idx;
-        }
         else if (lower.includes('ngày trả')) colMap.day = idx;
         else if (lower.includes('trạng thái')) colMap.status = idx;
         else if (lower.includes('ghi chú')) colMap.note = idx;
@@ -1073,7 +1045,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
 
     const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
 
-    // Check income rows
+    // Check income rows in Section 1
     if (rowStr.includes('lương chủ động') || rowStr.includes('luong')) {
       const val = row.find((c, i) => i > 0 && parseAmountValue(c) > 0);
       if (val) salaryIncome = parseAmountValue(val);
@@ -1105,7 +1077,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     let colStatus = 'Chưa tất toán';
     let colNote = '';
 
-    if (headerFound && (colMap.name !== undefined || colMap.amount !== undefined)) {
+    if (headerFound && (colMap.name !== undefined || colMap.amount !== undefined || colMap.monthlyBefore !== undefined)) {
       colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colCat = colMap.category !== undefined ? String(row[colMap.category] || '') : '';
       colName = colMap.name !== undefined ? String(row[colMap.name] || '') : '';
@@ -1227,7 +1199,7 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
     if (rowStr.includes('mục tiêu') && (rowStr.includes('nhóm') || rowStr.includes('tên') || rowStr.includes('mã'))) {
       row.forEach((cell, idx) => {
         const lower = String(cell || '').toLowerCase().trim();
-        if (lower.includes('mã id') || lower === 'id') colMap.id = idx;
+        if (lower.includes('mã id') || lower === 'id' || lower.includes('trống=thêm')) colMap.id = idx;
         else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
         else if (lower.includes('nhóm')) colMap.group = idx;
         else if (lower.includes('tên')) colMap.name = idx;
@@ -1384,9 +1356,9 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
   return goals;
 };
 
-// ==========================================
+// =========================================================================
 // 4. BỘ PHÂN TÍCH TOÀN BỘ FILE EXCEL UPLOAD
-// ==========================================
+// =========================================================================
 export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> => {
   const arrayBuffer = await file.arrayBuffer();
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
@@ -1424,7 +1396,7 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
       const parsed = parseRawRowsToGoals(rawData);
       if (parsed.length > 0) result.goals.push(...parsed);
     } else {
-      // Fallback if generic single sheet
+      // Fallback if single generic sheet
       if (wb.SheetNames.length === 1) {
         const parsedAssets = parseRawRowsToAssets(rawData);
         if (parsedAssets.length > 0) result.assets.push(...parsedAssets);
