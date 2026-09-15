@@ -1,7 +1,7 @@
 import XLSX from 'xlsx-js-style';
 import ExcelJS from 'exceljs';
-import { Asset, AssetLevel, AssetType, Debt, DebtCategory, Goal, GoalGroup, DatabaseState } from '../types';
-import { normalizeDateStr, formatDateVN } from './format';
+import { Asset, AssetLevel, AssetType, Debt, DebtCategory, Goal, GoalGroup, DatabaseState, AssetTransaction } from '../types';
+import { normalizeDateStr, formatDateVN, parseFormattedDecimal } from './format';
 
 export interface ParsedAssetItem {
   id?: number;
@@ -11,6 +11,9 @@ export interface ParsedAssetItem {
   name: string;
   amount: number;
   costPrice?: number;
+  unitPrice?: number;
+  currentPrice?: number;
+  unit?: string;
   rate?: number;
   startDate?: string;
   termMonths?: number;
@@ -49,6 +52,7 @@ export interface ParsedGoalItem {
   name: string;
   goalType: 'dca' | 'milestone';
   assetType?: 'stock' | 'gold' | 'saving' | 'cash' | 'other';
+  linkedAssetId?: number;
   freqMonths?: number;
   day?: number;
   targetQty?: number;
@@ -56,6 +60,10 @@ export interface ParsedGoalItem {
   unit?: string;
   totalBought?: number;
   backlogQty?: number;
+  unitPrice?: number;
+  currentPrice?: number;
+  costPrice?: number;
+  lastBoughtPeriod?: string;
   target?: number;
   years?: number;
   status?: 'active' | 'completed' | 'pending';
@@ -66,6 +74,7 @@ export interface ParsedFullDatabase {
   assets: ParsedAssetItem[];
   debts: ParsedDebtItem[];
   goals: ParsedGoalItem[];
+  transactions?: AssetTransaction[];
   salaryIncome?: number;
   otherIncome?: number;
 }
@@ -252,13 +261,14 @@ export const parseRateValue = (val: any): number => {
   return Number(num.toFixed(2));
 };
 
-// Safe quantity parser
+// Safe quantity parser (preserves decimal quantities e.g. 1.5 lượng, 0.5 chỉ)
 export const parseQuantityValue = (val: any): number => {
   if (val === undefined || val === null || val === '') return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   let s = String(val).trim();
   s = s.replace(/cp|cổ phiếu|lượng|chỉ|đơn vị|căn/gi, '').trim();
-  return parseAmountValue(s);
+  const num = parseFormattedDecimal(s);
+  return isNaN(num) ? 0 : Number(num.toFixed(4));
 };
 
 // Safe date string parser - output standardized YYYY-MM-DD
@@ -689,7 +699,7 @@ const buildSheet3 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
       } else if (cIdx === 9 || cIdx === 11 || cIdx === 12 || cIdx === 13 || cIdx === 14) {
         cell.alignment = { vertical: 'middle', horizontal: 'right' };
         if (typeof cell.value === 'number') {
-          cell.numFmt = '#,##0';
+          cell.numFmt = (cIdx === 9 || cIdx === 12 || cIdx === 13) ? '#,##0.##' : '#,##0';
         }
       } else {
         cell.alignment = { vertical: 'middle', horizontal: 'left' };
@@ -700,6 +710,102 @@ const buildSheet3 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
   // Freeze 4 top rows natively & set autofilter
   ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'A5', showGridLines: true }];
   ws.autoFilter = 'A4:Q4';
+};
+
+// Sheet 4 Builder & Stylist (Lịch Sử Giao Dịch Tích Sản & Mua Gom)
+const buildSheet4 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
+  ws.columns = [
+    { width: 22 }, // A: Mã ID Giao Dịch
+    { width: 8 },  // B: STT
+    { width: 22 }, // C: Mã ID Tài Sản Liên Kết (TS-...)
+    { width: 38 }, // D: Tên Tài Sản / Mục Tiêu (*)
+    { width: 20 }, // E: Ngày Giao Dịch (YYYY-MM-DD) (*)
+    { width: 22 }, // F: Loại Giao Dịch (*)
+    { width: 20 }, // G: Số Lượng (*)
+    { width: 14 }, // H: Đơn Vị
+    { width: 26 }, // I: Đơn Giá (VNĐ)
+    { width: 30 }, // J: Thành Tiền (VNĐ) (*)
+    { width: 45 }, // K: Ghi Chú
+  ];
+
+  rows.forEach((r) => ws.addRow(r));
+
+  // Row 1: Title
+  const r1 = ws.getRow(1);
+  r1.height = 26;
+  const cA1 = r1.getCell(1);
+  cA1.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF0F172A' } };
+  cA1.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 2: Summary
+  const r2 = ws.getRow(2);
+  r2.height = 24;
+  const cA2 = r2.getCell(1);
+  cA2.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+  cA2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+  cA2.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 3: Guide
+  const r3 = ws.getRow(3);
+  r3.height = 24;
+  const cA3 = r3.getCell(1);
+  cA3.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+  cA3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  cA3.alignment = { vertical: 'middle', horizontal: 'left' };
+
+  // Row 4: Table Headers
+  const r4 = ws.getRow(4);
+  r4.height = 28;
+  for (let c = 1; c <= 11; c++) {
+    const cell = r4.getCell(c);
+    const val = String(cell.value || '');
+    const isReq = val.includes('(*)');
+    cell.font = {
+      name: 'Arial',
+      size: 10,
+      bold: true,
+      color: { argb: isReq ? 'FFDC2626' : 'FF1E293B' },
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isReq ? 'FFFEE2E2' : 'FFF1F5F9' },
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.border = isReq ? BORDER_HEADER_REQUIRED : BORDER_HEADER_OPTIONAL;
+  }
+
+  // Row 5+: Data rows
+  for (let rIdx = 5; rIdx <= rows.length; rIdx++) {
+    const row = ws.getRow(rIdx);
+    row.height = 22;
+    for (let cIdx = 1; cIdx <= 11; cIdx++) {
+      const cell = row.getCell(cIdx);
+      cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
+      cell.border = BORDER_THIN;
+
+      if (cIdx === 1 || cIdx === 2 || cIdx === 3 || cIdx === 5 || cIdx === 6 || cIdx === 8) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        if (cIdx === 5) cell.numFmt = '@';
+      } else if (cIdx === 7) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '#,##0.##';
+        }
+      } else if (cIdx === 9 || cIdx === 10) {
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        if (typeof cell.value === 'number') {
+          cell.numFmt = '#,##0';
+        }
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    }
+  }
+
+  // Freeze 4 top rows natively & set autofilter
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'A5', showGridLines: true }];
+  ws.autoFilter = 'A4:K4';
 };
 
 // =========================================================================
@@ -736,7 +842,7 @@ export const downloadStandardExcelTemplate = async () => {
     ],
     ['TS-101', 1, 'Tầng 1: Bảo vệ', 'Tiền gửi tiết kiệm', 'Sổ tiết kiệm Vietcombank 12T', 300000000, 300000000, 0.055, '2025-06-15', 12, '2026-06-15', 1, 0, 0, 'Lãi suất 5.5%/năm, kỳ hạn 12 tháng'],
     ['TS-102', 2, 'Tầng 1: Bảo vệ', 'Tiền mặt & TK thanh toán', 'Tài khoản Techcombank (Quỹ khẩn cấp)', 50000000, 50000000, 0, '2025-01-01', 0, '', 1, 0, 0, 'Dự phòng sinh hoạt 6 tháng'],
-    ['TS-103', 3, 'Tầng 1: Bảo vệ', 'Vàng vật chất', 'Vàng miếng SJC 9999', 170000000, 150000000, 0.12, '2024-08-10', 0, '', 2, 0, 0, '2 lượng vàng tích trữ phòng vệ lạm phát'],
+    ['TS-103', 3, 'Tầng 1: Bảo vệ', 'Vàng vật chất', 'Vàng miếng SJC 9999', 170000000, 150000000, 0.12, '2024-08-10', 0, '', 1.5, 0, 0, '1.5 lượng vàng tích trữ phòng vệ lạm phát'],
     ['TS-104', 4, 'Tầng 2: Tăng trưởng', 'Cổ phiếu niêm yết', 'Cổ phiếu FPT Technology', 650000000, 500000000, 0.18, '2024-03-15', 0, '', 5000, 0, 2000, '5.000 CP, cổ tức 2.000 đ/CP/năm'],
     ['TS-105', 5, 'Tầng 2: Tăng trưởng', 'Bất động sản cho thuê', 'Căn hộ chung cư Vinhomes', 3800000000, 3200000000, 0.056, '2023-11-20', 0, '', 1, 18000000, 0, 'Cho thuê 18 triệu/tháng, tỷ suất 5.6%/năm'],
     ['TS-106', 6, 'Tầng 2: Tăng trưởng', 'Trái phiếu doanh nghiệp', 'Trái phiếu Masan Group', 200000000, 200000000, 0.092, '2024-05-10', 24, '2026-05-10', 200, 0, 0, 'Trái phiếu kỳ hạn 2 năm lãi 9.2%/năm'],
@@ -812,13 +918,38 @@ export const downloadStandardExcelTemplate = async () => {
       'Ghi Chú / Chiến Lược',
     ],
     ['MT-301', 1, 'Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản cổ phiếu FPT', 'DCA', 'Cổ phiếu', 1, 20, 200, 'CP', 0, 1500, 0, 0, 3, 'active', 'Mua định kỳ 200 CP ngày 20 hằng tháng'],
-    ['MT-302', 2, 'Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản Vàng nhẫn 9999', 'DCA', 'Vàng', 1, 25, 1, 'Chỉ', 0, 8, 0, 0, 2, 'active', 'Mua tích trữ mỗi tháng 1 chỉ'],
+    ['MT-302', 2, 'Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản Vàng nhẫn 9999', 'DCA', 'Vàng', 1, 25, 1.5, 'Chỉ', 0, 8.5, 0, 0, 2, 'active', 'Mua tích trữ mỗi tháng 1.5 chỉ'],
     ['MT-303', 3, 'Nhóm 3: Dự phòng Runway', 'Quỹ khẩn cấp 6 tháng', 'Cột mốc', 'Tiền mặt', 1, 1, 0, 'VNĐ', 5000000, 50000000, 0, 120000000, 1, 'active', 'Quỹ dự phòng an toàn'],
     ['MT-304', 4, 'Nhóm 4: Cột mốc tài chính / BĐS', 'Mua đất nền ven đô', 'Cột mốc', 'Khác', 3, 15, 0, 'VNĐ', 30000000, 300000000, 0, 1500000000, 4, 'active', 'Tích lũy vốn tự có chuẩn bị đầu tư'],
   ];
 
   const ws3 = wb.addWorksheet('3_Muc_Tieu');
   buildSheet3(ws3, ws3Data);
+
+  // SHEET 4: 4_Lich_Su_Giao_Dich (Lịch sử giao dịch tích sản & mua gom)
+  const ws4Data: any[][] = [
+    ['LỊCH SỬ GIAO DỊCH TÍCH SẢN & BIẾN ĐỘNG DANH MỤC (FILE MẪU CHUẨN)'],
+    ['[TỔNG HỢP]: Lịch sử các lần mua gom, nạp thêm, bán tài sản | Tự động đồng bộ với danh mục và mục tiêu DCA'],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Điền Mã ID Tài sản (ví dụ TS-103) để tự động khớp nối. Định dạng ngày YYYY-MM-DD.'],
+    [
+      'Mã ID Giao Dịch',
+      'STT',
+      'Mã ID Tài Sản (TS-...)',
+      'Tên Tài Sản / Mục Tiêu (*)',
+      'Ngày Giao Dịch (YYYY-MM-DD) (*)',
+      'Loại Giao Dịch (*)',
+      'Số Lượng (*)',
+      'Đơn Vị',
+      'Đơn Giá (VNĐ)',
+      'Thành Tiền (VNĐ) (*)',
+      'Ghi Chú',
+    ],
+    ['GD-01', 1, 'TS-103', 'Vàng miếng SJC 9999', '2026-08-10', 'Mua gom', 1.5, 'Lượng', 86000000, 129000000, 'Mua gom tích sản định kỳ đợt 1'],
+    ['GD-02', 2, 'TS-104', 'Cổ phiếu FPT Technology', '2026-08-20', 'Mua gom', 200, 'CP', 135000, 27000000, 'Khớp lệnh tích sản phiên ATC'],
+  ];
+
+  const ws4 = wb.addWorksheet('4_Lich_Su_Giao_Dich');
+  buildSheet4(ws4, ws4Data);
 
   await saveWorkbookToBrowser(wb, 'Mau_Nhap_Thap_Tai_San_Chuan.xlsx');
 };
@@ -1031,6 +1162,59 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
 
   const ws3 = wb.addWorksheet('3_Muc_Tieu');
   buildSheet3(ws3, rows3);
+
+  // SHEET 4: LỊCH SỬ GIAO DỊCH TÍCH SẢN & MUA GOM
+  const txList = db.transactions || [];
+  const rows4: any[][] = [
+    ['BÁO CÁO LỊCH SỬ GIAO DỊCH TÍCH SẢN & BIẾN ĐỘNG'],
+    [`[TỔNG HỢP]: Tổng Số Giao Dịch = ${txList.length} | Lịch sử mua gom, nạp thêm, bán tài sản | Chủ TK: ${accountName || 'Cá nhân'} | Ngày: ${dateStr}`],
+    ['* HƯỚNG DẪN: Cột có (*) là BẮT BUỘC. Điền Mã ID Tài sản (ví dụ TS-103) để tự động khớp nối. Định dạng ngày YYYY-MM-DD.'],
+    [
+      'Mã ID Giao Dịch',
+      'STT',
+      'Mã ID Tài Sản (TS-...)',
+      'Tên Tài Sản / Mục Tiêu (*)',
+      'Ngày Giao Dịch (YYYY-MM-DD) (*)',
+      'Loại Giao Dịch (*)',
+      'Số Lượng (*)',
+      'Đơn Vị',
+      'Đơn Giá (VNĐ)',
+      'Thành Tiền (VNĐ) (*)',
+      'Ghi Chú',
+    ],
+  ];
+
+  if (txList.length === 0) {
+    rows4.push(['GD-01', 1, 'TS-103', 'Vàng miếng SJC 9999', '2026-08-10', 'Mua gom', 1.5, 'Lượng', 86000000, 129000000, 'Mua gom mẫu']);
+  } else {
+    txList.forEach((tx, idx) => {
+      const typeLabel =
+        tx.type === 'buy'
+          ? 'Mua gom'
+          : tx.type === 'deposit'
+          ? 'Nạp thêm'
+          : tx.type === 'sell'
+          ? 'Bán bớt'
+          : 'Rút vốn';
+
+      rows4.push([
+        tx.id ? (String(tx.id).startsWith('GD-') || String(tx.id).startsWith('tx-') ? tx.id : `GD-${tx.id}`) : `GD-${idx + 1}`,
+        idx + 1,
+        tx.assetId ? `TS-${tx.assetId}` : '',
+        tx.assetName || '',
+        tx.date ? formatDateVN(tx.date) : '',
+        typeLabel,
+        tx.quantity || 0,
+        tx.unit || '',
+        tx.pricePerUnit || 0,
+        tx.totalAmount || 0,
+        tx.note || '',
+      ]);
+    });
+  }
+
+  const ws4 = wb.addWorksheet('4_Lich_Su_Giao_Dich');
+  buildSheet4(ws4, rows4);
 
   const safeName = (accountName || 'User').replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `Bao_Cao_Thap_Tai_San_${safeName}_${new Date().toISOString().split('T')[0]}.xlsx`;
@@ -1575,6 +1759,124 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
   return goals;
 };
 
+// Parse Sheet 4: Transaction History (Lịch sử tích sản, mua gom, nạp/rút)
+export const parseRawRowsToTransactions = (rawRows: any[][]): AssetTransaction[] => {
+  const transactions: AssetTransaction[] = [];
+  const colMap: Record<string, number> = {};
+  let headerFound = false;
+
+  for (const row of rawRows) {
+    if (!row || row.length === 0) continue;
+    const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
+    if (
+      (rowStr.includes('giao dịch') || rowStr.includes('tích sản') || rowStr.includes('biến động')) &&
+      (rowStr.includes('ngày') || rowStr.includes('thành tiền') || rowStr.includes('số lượng') || rowStr.includes('đơn giá'))
+    ) {
+      row.forEach((cell, idx) => {
+        const lower = String(cell || '').toLowerCase().trim();
+        if (lower.includes('mã id') || lower === 'id' || lower.includes('mã gd')) colMap.id = idx;
+        else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
+        else if (lower.includes('mã id tài sản') || (lower.includes('tài sản') && lower.includes('ts-'))) colMap.assetId = idx;
+        else if (lower.includes('tên') || lower.includes('danh mục')) colMap.assetName = idx;
+        else if (lower.includes('ngày')) colMap.date = idx;
+        else if (lower.includes('loại')) colMap.type = idx;
+        else if (lower.includes('số lượng') || lower.includes('khối lượng') || lower === 'sl') colMap.quantity = idx;
+        else if (lower.includes('đơn vị') || lower === 'đvt') colMap.unit = idx;
+        else if (lower.includes('đơn giá') || lower.includes('giá mua')) colMap.pricePerUnit = idx;
+        else if (lower.includes('thành tiền') || lower.includes('tổng tiền') || lower.includes('giá trị')) colMap.totalAmount = idx;
+        else if (lower.includes('ghi chú')) colMap.note = idx;
+      });
+      headerFound = true;
+      break;
+    }
+  }
+
+  for (const row of rawRows) {
+    if (!row || row.length === 0) continue;
+    const nonEmpties = row.filter((c) => c !== undefined && c !== null && String(c).trim() !== '');
+    if (nonEmpties.length === 0) continue;
+    if (isHeaderRow(row) || isSummaryRow(row)) continue;
+
+    let colId: any = undefined;
+    let colAssetId: any = undefined;
+    let colAssetName = '';
+    let colDate = '';
+    let colType = 'buy';
+    let colQty: any = 0;
+    let colUnit = '';
+    let colPrice: any = 0;
+    let colTotal: any = 0;
+    let colNote = '';
+
+    if (headerFound && (colMap.date !== undefined || colMap.totalAmount !== undefined || colMap.assetName !== undefined)) {
+      colId = colMap.id !== undefined ? row[colMap.id] : undefined;
+      colAssetId = colMap.assetId !== undefined ? row[colMap.assetId] : undefined;
+      colAssetName = colMap.assetName !== undefined ? String(row[colMap.assetName] || '') : '';
+      colDate = colMap.date !== undefined ? String(row[colMap.date] || '') : '';
+      colType = colMap.type !== undefined ? String(row[colMap.type] || '') : 'buy';
+      colQty = colMap.quantity !== undefined ? row[colMap.quantity] : 0;
+      colUnit = colMap.unit !== undefined ? String(row[colMap.unit] || '') : '';
+      colPrice = colMap.pricePerUnit !== undefined ? row[colMap.pricePerUnit] : 0;
+      colTotal = colMap.totalAmount !== undefined ? row[colMap.totalAmount] : 0;
+      colNote = colMap.note !== undefined ? String(row[colMap.note] || '') : '';
+    } else {
+      let cleanRow = [...row];
+      if (typeof cleanRow[0] === 'string' && /^(gd|tx)-\w+/i.test(cleanRow[0])) {
+        colId = cleanRow.shift();
+      }
+      if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
+        cleanRow.shift();
+      }
+      if (cleanRow.length >= 8) {
+        colAssetId = cleanRow[0];
+        colAssetName = String(cleanRow[1] || '');
+        colDate = String(cleanRow[2] || '');
+        colType = String(cleanRow[3] || 'buy');
+        colQty = cleanRow[4];
+        colUnit = String(cleanRow[5] || '');
+        colPrice = cleanRow[6];
+        colTotal = cleanRow[7];
+        colNote = String(cleanRow[8] || '');
+      }
+    }
+
+    const qtyNum = parseQuantityValue(colQty);
+    const priceNum = parseAmountValue(colPrice);
+    let totalNum = parseAmountValue(colTotal);
+    if (totalNum === 0 && qtyNum > 0 && priceNum > 0) {
+      totalNum = Math.round(qtyNum * priceNum);
+    }
+    if (totalNum <= 0 && qtyNum <= 0) continue;
+
+    const parsedAssetId = parseIdValue(colAssetId);
+    const cleanDate = parseDateValue(colDate) || new Date().toISOString().split('T')[0];
+
+    let txType: 'buy' | 'deposit' | 'sell' | 'withdraw' = 'buy';
+    const lowerType = String(colType).toLowerCase();
+    if (lowerType.includes('bán') || lowerType.includes('sell')) txType = 'sell';
+    else if (lowerType.includes('nạp') || lowerType.includes('deposit')) txType = 'deposit';
+    else if (lowerType.includes('rút') || lowerType.includes('withdraw')) txType = 'withdraw';
+
+    const txId = colId ? String(colId).trim() : `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+    transactions.push({
+      id: txId,
+      assetId: parsedAssetId,
+      assetName: colAssetName.trim() || undefined,
+      date: cleanDate,
+      type: txType,
+      quantity: qtyNum > 0 ? qtyNum : undefined,
+      unit: colUnit.trim() || undefined,
+      pricePerUnit: priceNum > 0 ? priceNum : undefined,
+      totalAmount: totalNum,
+      note: colNote.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  return transactions;
+};
+
 // =========================================================================
 // 4. BỘ PHÂN TÍCH TOÀN BỘ FILE EXCEL UPLOAD
 // =========================================================================
@@ -1586,6 +1888,7 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
     assets: [],
     debts: [],
     goals: [],
+    transactions: [],
     salaryIncome: 0,
     otherIncome: 0,
   };
@@ -1614,6 +1917,12 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
     } else if (lowerName.includes('muc_tieu') || lowerName.includes('mục tiêu') || lowerName.includes('goal')) {
       const parsed = parseRawRowsToGoals(rawData);
       if (parsed.length > 0) result.goals.push(...parsed);
+    } else if (lowerName.includes('lich_su') || lowerName.includes('giao_dich') || lowerName.includes('giao dịch') || lowerName.includes('transaction') || lowerName.includes('history')) {
+      const parsed = parseRawRowsToTransactions(rawData);
+      if (parsed.length > 0) {
+        if (!result.transactions) result.transactions = [];
+        result.transactions.push(...parsed);
+      }
     } else {
       // Fallback if single generic sheet
       if (wb.SheetNames.length === 1) {
@@ -1627,6 +1936,12 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
 
         const parsedGoals = parseRawRowsToGoals(rawData);
         if (parsedGoals.length > 0) result.goals.push(...parsedGoals);
+
+        const parsedTx = parseRawRowsToTransactions(rawData);
+        if (parsedTx.length > 0) {
+          if (!result.transactions) result.transactions = [];
+          result.transactions.push(...parsedTx);
+        }
       }
     }
   }

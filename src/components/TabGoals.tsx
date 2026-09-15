@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Goal, DatabaseState, GoalGroup, GoalAssetType, Asset, Debt } from '../types';
+import { Goal, DatabaseState, GoalGroup, GoalAssetType, Asset, Debt, AssetTransaction } from '../types';
 import {
   formatVND,
   formatNumberString,
@@ -11,6 +11,7 @@ import {
 } from '../utils/format';
 import { createPointValuePlugin } from '../utils/chartPlugin';
 import { Chart, registerables } from 'chart.js';
+import { AssetHistoryModal } from './AssetHistoryModal';
 import {
   Target,
   PlusCircle,
@@ -32,6 +33,7 @@ import {
   Layers,
   ArrowRight,
   X,
+  History,
 } from 'lucide-react';
 
 Chart.register(...registerables);
@@ -43,6 +45,7 @@ interface TabGoalsProps {
   onRemoveGoal: (id: number) => void;
   onUpdateAssetDirectly: (asset: Asset) => void;
   onUpdateDebtDirectly?: (debt: Debt) => void;
+  onSaveTransactions?: (updatedTxs: AssetTransaction[], updatedAsset?: Asset, updatedGoal?: Goal) => void;
 }
 
 const goalGroupLabels: Record<GoalGroup, { name: string; tagClass: string; icon: string; desc: string }> = {
@@ -79,6 +82,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
   onRemoveGoal,
   onUpdateAssetDirectly,
   onUpdateDebtDirectly,
+  onSaveTransactions,
 }) => {
   // Filters
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<GoalGroup | 'all'>('all');
@@ -90,6 +94,11 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
   const [showGoalStandards, setShowGoalStandards] = useState(false);
   const [formMode, setFormMode] = useState<'dca' | 'milestone'>('dca');
   const [editingGoalId, setEditingGoalId] = useState<number | null>(null);
+
+  // History modal states
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedHistoryGoal, setSelectedHistoryGoal] = useState<Goal | null>(null);
+  const [selectedHistoryAsset, setSelectedHistoryAsset] = useState<Asset | null>(null);
 
   // Form refs for smooth auto-jump and focus
   const goalFormRef = useRef<HTMLFormElement | null>(null);
@@ -112,11 +121,32 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
   // Editable Accumulated Results & Backlog States
   const [editTotalBoughtStr, setEditTotalBoughtStr] = useState('');
   const [editBacklogQtyStr, setEditBacklogQtyStr] = useState('');
+  const [editUnitPriceStr, setEditUnitPriceStr] = useState('');
+  const [editCurrentPriceStr, setEditCurrentPriceStr] = useState('');
   const [editSyncToAsset, setEditSyncToAsset] = useState(true);
+  const [editIsPaidThisPeriod, setEditIsPaidThisPeriod] = useState(false);
+
+  // DCA Modal & Toast states
+  const [dcaDepositGoal, setDcaDepositGoal] = useState<Goal | null>(null);
+  const [depositAmountStr, setDepositAmountStr] = useState('');
+  const [depositPriceStr, setDepositPriceStr] = useState('');
+  const [depositAutoSyncAsset, setDepositAutoSyncAsset] = useState(true);
+
+  const [dcaBacklogGoal, setDcaBacklogGoal] = useState<Goal | null>(null);
+  const [backlogInputStr, setBacklogInputStr] = useState('');
+
+  const [toastBanner, setToastBanner] = useState<{ text: string; type: 'success' | 'info' | 'warning' } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'info' | 'warning' = 'success') => {
+    setToastBanner({ text, type });
+    setTimeout(() => {
+      setToastBanner((curr) => (curr?.text === text ? null : curr));
+    }, 4500);
+  };
 
   // Table & Stress test states
   const [showPillarList, setShowPillarList] = useState(false); // Mặc định là ẩn danh sách 4 trụ cột
-  const [showGoalTable, setShowGoalTable] = useState(false);
+  const [showGoalTable, setShowGoalTable] = useState(true);
   const [showStressTest, setShowStressTest] = useState(false);
   const [simTargetValStr, setSimTargetValStr] = useState('3.000.000.000');
   const [simMonthsLeft, setSimMonthsLeft] = useState(24);
@@ -459,6 +489,8 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         if (asset.amount && (!targetQtyStr || targetQtyStr === '0')) {
           setTargetQtyStr(formatNumberString(Math.min(20000000, Math.round(asset.amount / 10))));
         }
+        setEditUnitPriceStr('');
+        setEditCurrentPriceStr('');
       } else if (asset.type === 'stock') {
         setAssetType('stock');
         setUnit('CP');
@@ -466,6 +498,13 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         if (!targetQtyStr || targetQtyStr === '0') {
           setTargetQtyStr('500');
         }
+        const qty = asset.quantity || 0;
+        const cost = asset.costPrice || 0;
+        const val = asset.amount || 0;
+        const avgPrice = qty > 0 ? Math.round((cost > 0 ? cost : val) / qty) : 30000;
+        const curPrice = qty > 0 ? Math.round(val / qty) : 32000;
+        setEditUnitPriceStr(formatNumberString(avgPrice));
+        setEditCurrentPriceStr(formatNumberString(curPrice));
       } else if (asset.type === 'gold') {
         setAssetType('gold');
         setUnit('chỉ');
@@ -473,6 +512,13 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         if (!targetQtyStr || targetQtyStr === '0') {
           setTargetQtyStr('2');
         }
+        const qty = asset.quantity || 0;
+        const cost = asset.costPrice || 0;
+        const val = asset.amount || 0;
+        const avgPrice = qty > 0 ? Math.round((cost > 0 ? cost : val) / qty) : 8200000;
+        const curPrice = qty > 0 ? Math.round(val / qty) : 8650000;
+        setEditUnitPriceStr(formatNumberString(avgPrice));
+        setEditCurrentPriceStr(formatNumberString(curPrice));
       } else if (asset.type === 'cash') {
         setAssetType('cash');
         setUnit('VNĐ');
@@ -480,6 +526,8 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         if (!targetQtyStr || targetQtyStr === '0') {
           setTargetQtyStr(formatNumberString(5000000));
         }
+        setEditUnitPriceStr('');
+        setEditCurrentPriceStr('');
       } else {
         setAssetType('other');
         setUnit('VNĐ');
@@ -487,6 +535,8 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         if (asset.amount) {
           setGoalTargetStr(formatNumberString(asset.amount));
         }
+        setEditUnitPriceStr('');
+        setEditCurrentPriceStr('');
       }
     }
   };
@@ -508,6 +558,15 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     }
   };
 
+  const handleOpenHistory = (g: Goal) => {
+    const matchedAsset = g.linkedAssetId
+      ? db.assets.find((a) => a.id === g.linkedAssetId)
+      : db.assets.find((a) => a.name.toLowerCase() === g.name.toLowerCase());
+    setSelectedHistoryGoal(g);
+    setSelectedHistoryAsset(matchedAsset || null);
+    setShowHistoryModal(true);
+  };
+
   const handleEditGoal = (g: Goal) => {
     setEditingGoalId(g.id);
     setGoalGroup(g.group || 'dca');
@@ -525,11 +584,30 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     setGoalYears(g.years || 2);
     setGoalNote(g.note || '');
 
-    // Nạp kết quả tích lũy thực tế & nợ kỳ trước để người dùng có thể sửa
-    setEditTotalBoughtStr(g.totalBought !== undefined ? formatNumberString(g.totalBought) : '');
-    setEditBacklogQtyStr(g.backlogQty !== undefined ? formatNumberString(g.backlogQty) : '');
-    setEditSyncToAsset(true);
+    // Trạng thái đã nạp kỳ hiện tại
+    setEditIsPaidThisPeriod(g.lastBoughtPeriod === currentPeriodStr);
 
+    // Nạp kết quả tích lũy thực tế & nợ kỳ trước để người dùng có thể sửa
+    const matchedAsset = g.linkedAssetId
+      ? db.assets.find((a) => a.id === g.linkedAssetId)
+      : db.assets.find((a) => a.name.toLowerCase() === g.name.toLowerCase());
+
+    const totalQty = g.totalBought !== undefined ? g.totalBought : (matchedAsset?.quantity || 0);
+    setEditTotalBoughtStr(totalQty > 0 ? formatNumberString(totalQty) : (g.totalBought !== undefined ? formatNumberString(g.totalBought) : ''));
+    setEditBacklogQtyStr(g.backlogQty !== undefined ? formatNumberString(g.backlogQty) : '');
+
+    // Nạp đơn giá vốn cũ / trung bình & đơn giá hiện tại
+    if (g.assetType === 'gold' || g.assetType === 'stock' || g.unit === 'chỉ' || g.unit === 'CP' || g.unit === 'lượng') {
+      const avgPrice = g.unitPrice || (matchedAsset?.quantity && matchedAsset?.costPrice ? Math.round(matchedAsset.costPrice / matchedAsset.quantity) : (matchedAsset?.quantity && matchedAsset?.amount ? Math.round(matchedAsset.amount / matchedAsset.quantity) : (g.assetType === 'gold' ? 8200000 : 30000)));
+      const curPrice = g.currentPrice || (matchedAsset?.quantity && matchedAsset?.amount ? Math.round(matchedAsset.amount / matchedAsset.quantity) : (g.assetType === 'gold' ? 8650000 : 32000));
+      setEditUnitPriceStr(formatNumberString(avgPrice));
+      setEditCurrentPriceStr(formatNumberString(curPrice));
+    } else {
+      setEditUnitPriceStr('');
+      setEditCurrentPriceStr('');
+    }
+
+    setEditSyncToAsset(true);
     setShowGoalForm(true);
 
     setTimeout(() => {
@@ -555,7 +633,10 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     setGoalNote('');
     setEditTotalBoughtStr('');
     setEditBacklogQtyStr('');
+    setEditUnitPriceStr('');
+    setEditCurrentPriceStr('');
     setEditSyncToAsset(true);
+    setEditIsPaidThisPeriod(false);
     setShowGoalForm(false);
   };
 
@@ -580,6 +661,17 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
       // Cho phép sửa trực tiếp kết quả tích lũy lũy kế và nợ kỳ trước
       const totalBoughtVal = editTotalBoughtStr !== '' ? parseFormattedNumber(editTotalBoughtStr) : (existing?.totalBought || 0);
       const backlogQtyVal = editBacklogQtyStr !== '' ? parseFormattedNumber(editBacklogQtyStr) : (existing?.backlogQty || 0);
+      const unitPriceVal = editUnitPriceStr !== '' ? parseFormattedNumber(editUnitPriceStr) : (existing?.unitPrice || (assetType === 'gold' ? 8200000 : 30000));
+      const currentPriceVal = editCurrentPriceStr !== '' ? parseFormattedNumber(editCurrentPriceStr) : (existing?.currentPrice || (assetType === 'gold' ? 8650000 : 32000));
+      const totalCostVal = totalBoughtVal > 0 && unitPriceVal > 0 ? totalBoughtVal * unitPriceVal : undefined;
+
+      // Xác định chính xác lastBoughtPeriod dựa trên lựa chọn người dùng (chỉ set khi chọn Đã nạp)
+      let resolvedLastBought = '';
+      if (editIsPaidThisPeriod) {
+        resolvedLastBought = currentPeriodStr;
+      } else if (existing?.lastBoughtPeriod && existing.lastBoughtPeriod !== currentPeriodStr) {
+        resolvedLastBought = existing.lastBoughtPeriod;
+      }
 
       const newGoal: Goal = {
         id: editingGoalId || Date.now(),
@@ -595,7 +687,10 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         day: goalDay,
         backlogQty: backlogQtyVal,
         totalBought: totalBoughtVal,
-        lastBoughtPeriod: existing?.lastBoughtPeriod || (totalBoughtVal > 0 ? currentPeriodStr : ''),
+        unitPrice: unitPriceVal > 0 ? unitPriceVal : undefined,
+        currentPrice: currentPriceVal > 0 ? currentPriceVal : undefined,
+        costPrice: totalCostVal,
+        lastBoughtPeriod: resolvedLastBought,
         status: existing?.status || 'active',
         note: goalNote.trim() || undefined,
       };
@@ -616,16 +711,15 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
               updatedAt: new Date().toLocaleDateString('vi-VN'),
             });
           } else if (matchedAsset.type === 'stock' || matchedAsset.type === 'gold' || assetType === 'stock' || assetType === 'gold') {
-            const unitPrice =
-              matchedAsset.costPrice ||
-              matchedAsset.currentPrice ||
-              (matchedAsset.quantity && matchedAsset.quantity > 0
-                ? Math.round(matchedAsset.amount / matchedAsset.quantity)
-                : 0);
+            const finalMarketAmount = totalBoughtVal > 0 && currentPriceVal > 0 
+              ? totalBoughtVal * currentPriceVal 
+              : (unitPriceVal > 0 ? totalBoughtVal * unitPriceVal : matchedAsset.amount);
+            
             onUpdateAssetDirectly({
               ...matchedAsset,
               quantity: totalBoughtVal,
-              amount: unitPrice > 0 ? totalBoughtVal * unitPrice : matchedAsset.amount,
+              costPrice: totalCostVal || matchedAsset.costPrice,
+              amount: finalMarketAmount,
               updatedAt: new Date().toLocaleDateString('vi-VN'),
             });
           }
@@ -659,122 +753,209 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     handleCancelForm();
   };
 
-  // Marking DCA bought/deposited with ACCURATE Tab 1 synchronization!
-  const handleMarkDCABought = (goal: Goal) => {
+  // Nhanh chóng chuyển đổi giữa "Đã nạp kỳ này" và "Chờ nạp kỳ này"
+  const handleTogglePaidThisPeriod = (goal: Goal) => {
+    const isPaid = goal.lastBoughtPeriod === currentPeriodStr;
+    if (isPaid) {
+      onUpdateGoal({
+        ...goal,
+        lastBoughtPeriod: '',
+      });
+      showToast(`⏳ Đã chuyển "${goal.name}" về trạng thái: Chờ nạp kỳ ${currentPeriodStr}`, 'info');
+    } else {
+      handleOpenDepositModal(goal);
+    }
+  };
+
+  // Mở modal Nạp kỳ này
+  const handleOpenDepositModal = (goal: Goal) => {
+    setDcaDepositGoal(goal);
     const dueThisMonth = (goal.targetQty || 0) + (goal.backlogQty || 0);
-    const input = prompt(
-      `Xác nhận số lượng / số tiền nạp kỳ này cho "${goal.name}"\n(Định mức kỳ này gồm cả nợ cũ: ${formatNumberString(dueThisMonth)} ${goal.unit}):`,
-      formatNumberString(dueThisMonth)
+    setDepositAmountStr(formatNumberString(dueThisMonth > 0 ? dueThisMonth : (goal.targetQty || 1)));
+    
+    const isGoldOrStock = goal.assetType === 'gold' || goal.assetType === 'stock' || goal.unit === 'chỉ' || goal.unit === 'CP' || goal.unit === 'lượng';
+    if (isGoldOrStock) {
+      const defaultPrice = goal.currentPrice || goal.unitPrice || (goal.assetType === 'gold' ? 8650000 : 32000);
+      setDepositPriceStr(formatNumberString(defaultPrice));
+    } else {
+      setDepositPriceStr('');
+    }
+    setDepositAutoSyncAsset(true);
+  };
+
+  // Mở modal Chuyển nợ sang kỳ sau
+  const handleOpenBacklogModal = (goal: Goal) => {
+    setDcaBacklogGoal(goal);
+    setBacklogInputStr(formatNumberString(goal.targetQty || 1));
+  };
+
+  // Xác nhận chuyển nợ sang kỳ sau
+  const handleConfirmBacklog = () => {
+    if (!dcaBacklogGoal) return;
+    const addBacklog = parseFormattedNumber(backlogInputStr);
+    if (isNaN(addBacklog) || addBacklog <= 0) {
+      showToast('Vui lòng nhập số lượng nợ hợp lệ lớn hơn 0!', 'warning');
+      return;
+    }
+    const currentBacklog = dcaBacklogGoal.backlogQty || 0;
+    const newBacklog = currentBacklog + addBacklog;
+    const targetQty = dcaBacklogGoal.targetQty || 0;
+
+    const updatedGoal: Goal = {
+      ...dcaBacklogGoal,
+      backlogQty: newBacklog,
+      lastBoughtPeriod: `Chưa nạp (${currentPeriodStr})`,
+    };
+    onUpdateGoal(updatedGoal);
+    setDcaBacklogGoal(null);
+    showToast(
+      `✓ Đã ghi nhận nợ ${formatNumberString(addBacklog)} ${dcaBacklogGoal.unit} sang kỳ sau! Tổng cần nạp kỳ tới: ${formatNumberString(newBacklog + targetQty)} ${dcaBacklogGoal.unit}.`,
+      'warning'
     );
-    if (input === null) return;
-    const boughtVal = parseFormattedNumber(input);
+  };
+
+  // Xác nhận nạp kỳ này & đồng bộ Tab 1
+  const handleConfirmDeposit = () => {
+    if (!dcaDepositGoal) return;
+    const goal = dcaDepositGoal;
+    const boughtVal = parseFormattedNumber(depositAmountStr);
     if (isNaN(boughtVal) || boughtVal <= 0) {
-      alert('Số lượng nhập không hợp lệ!');
+      showToast('Vui lòng nhập số lượng/số tiền nạp lớn hơn 0!', 'warning');
       return;
     }
 
-    const newTotal = (goal.totalBought || 0) + boughtVal;
-    const newBacklog = boughtVal >= dueThisMonth ? 0 : dueThisMonth - boughtVal;
+    const isGoldOrStock = goal.assetType === 'gold' || goal.assetType === 'stock' || goal.unit === 'chỉ' || goal.unit === 'CP' || goal.unit === 'lượng';
+    let boughtPrice = 0;
+    if (isGoldOrStock) {
+      boughtPrice = parseFormattedNumber(depositPriceStr);
+      if (isNaN(boughtPrice) || boughtPrice <= 0) {
+        boughtPrice = goal.currentPrice || goal.unitPrice || (goal.assetType === 'gold' ? 8650000 : 32000);
+      }
+    }
 
-    // UPDATE GOAL STATE
+    const dueThisMonth = (goal.targetQty || 0) + (goal.backlogQty || 0);
+    const currentTotalBought = goal.totalBought || 0;
+    const newTotal = currentTotalBought + boughtVal;
+    const newBacklog = boughtVal >= dueThisMonth ? 0 : Math.max(0, dueThisMonth - boughtVal);
+
+    // Tính giá vốn bình quân mới
+    let newAvgPrice = goal.unitPrice || boughtPrice;
+    let newTotalCost = 0;
+    if (isGoldOrStock && boughtPrice > 0) {
+      const oldCost = (goal.costPrice && goal.costPrice > 0) 
+        ? goal.costPrice 
+        : (currentTotalBought * (goal.unitPrice || boughtPrice));
+      newTotalCost = oldCost + (boughtVal * boughtPrice);
+      newAvgPrice = newTotal > 0 ? Math.round(newTotalCost / newTotal) : boughtPrice;
+    }
+
+    // Cập nhật Mục Tiêu
     const updatedGoal: Goal = {
       ...goal,
       totalBought: newTotal,
+      unitPrice: isGoldOrStock ? newAvgPrice : undefined,
+      currentPrice: isGoldOrStock ? (boughtPrice > 0 ? boughtPrice : goal.currentPrice) : undefined,
+      costPrice: newTotalCost > 0 ? newTotalCost : undefined,
       lastBoughtPeriod: currentPeriodStr,
       backlogQty: newBacklog,
     };
     onUpdateGoal(updatedGoal);
 
-    // ACCURATELY UPDATE LINKED ASSET IN TAB 1!
-    let matchedAsset = goal.linkedAssetId
-      ? db.assets.find((a) => a.id === goal.linkedAssetId)
-      : db.assets.find((a) => a.name.toLowerCase() === goal.name.toLowerCase());
+    // Đồng bộ sang Tab 1 nếu được chọn
+    if (depositAutoSyncAsset) {
+      let matchedAsset = goal.linkedAssetId
+        ? db.assets.find((a) => a.id === goal.linkedAssetId)
+        : db.assets.find((a) => a.name.toLowerCase() === goal.name.toLowerCase());
 
-    if (matchedAsset) {
-      if (matchedAsset.type === 'saving' || goal.assetType === 'saving' || goal.unit === 'VNĐ') {
-        // FOR SAVING: Increase amount (VNĐ) directly in Tab 1!
-        const updatedAsset: Asset = {
-          ...matchedAsset,
-          amount: (matchedAsset.amount || 0) + boughtVal,
-          updatedAt: new Date().toLocaleDateString('vi-VN'),
-        };
-        onUpdateAssetDirectly(updatedAsset);
-        alert(
-          `✓ Đã ghi nhận nạp ${formatVND(boughtVal)} vào sổ tiết kiệm "${matchedAsset.name}" ở Tab 1 thành công!\nSố dư mới: ${formatVND(updatedAsset.amount)}.`
-        );
-      } else if (matchedAsset.type === 'stock') {
-        // FOR STOCK: Increase quantity (CP) and update amount
-        const currentQty = matchedAsset.quantity || 0;
-        const newQty = currentQty + boughtVal;
-        const avgPrice = currentQty > 0 ? Math.round(matchedAsset.amount / currentQty) : 30000;
-        const updatedAsset: Asset = {
-          ...matchedAsset,
-          quantity: newQty,
-          amount: (matchedAsset.amount || 0) + boughtVal * avgPrice,
-          updatedAt: new Date().toLocaleDateString('vi-VN'),
-        };
-        onUpdateAssetDirectly(updatedAsset);
-        alert(
-          `✓ Đã ghi nhận mua ${formatNumberString(boughtVal)} CP vào danh mục "${matchedAsset.name}" ở Tab 1 thành công!\nTổng SL mới: ${formatNumberString(newQty)} CP.`
-        );
-      } else if (matchedAsset.type === 'gold') {
-        // FOR GOLD: Increase quantity (chỉ) and value
-        const currentQty = matchedAsset.quantity || 0;
-        const newQty = currentQty + boughtVal;
-        const pricePerUnit = currentQty > 0 ? Math.round(matchedAsset.amount / currentQty) : 8500000;
-        const updatedAsset: Asset = {
-          ...matchedAsset,
-          quantity: newQty,
-          amount: (matchedAsset.amount || 0) + boughtVal * pricePerUnit,
-          updatedAt: new Date().toLocaleDateString('vi-VN'),
-        };
-        onUpdateAssetDirectly(updatedAsset);
-        alert(
-          `✓ Đã ghi nhận tích lũy ${formatNumberString(boughtVal)} chỉ vàng vào "${matchedAsset.name}" ở Tab 1 thành công!\nTổng SL mới: ${formatNumberString(newQty)} chỉ.`
-        );
-      }
-    } else {
-      // Auto-create new asset in Tab 1 if not yet existed
-      let newAsset: Asset;
-      if (goal.assetType === 'stock' || goal.unit === 'CP') {
-        newAsset = {
-          id: Date.now(),
-          level: '2',
-          type: 'stock',
-          name: goal.name,
-          amount: boughtVal * 30000,
-          quantity: boughtVal,
-          updatedAt: new Date().toLocaleDateString('vi-VN'),
-        };
-      } else if (goal.assetType === 'gold' || goal.unit === 'chỉ' || goal.unit === 'lượng') {
-        newAsset = {
-          id: Date.now(),
-          level: '1',
-          type: 'gold',
-          name: goal.name,
-          amount: boughtVal * 8500000,
-          quantity: boughtVal,
-          updatedAt: new Date().toLocaleDateString('vi-VN'),
-        };
+      if (matchedAsset) {
+        if (matchedAsset.type === 'saving' || goal.assetType === 'saving' || goal.unit === 'VNĐ') {
+          const updatedAsset: Asset = {
+            ...matchedAsset,
+            amount: (matchedAsset.amount || 0) + boughtVal,
+            updatedAt: new Date().toLocaleDateString('vi-VN'),
+          };
+          onUpdateAssetDirectly(updatedAsset);
+        } else if (matchedAsset.type === 'stock') {
+          const currentQty = matchedAsset.quantity || 0;
+          const newQty = currentQty + boughtVal;
+          const oldCost = matchedAsset.costPrice || (currentQty * (goal.unitPrice || 30000));
+          const finalCost = oldCost + (boughtVal * (boughtPrice || 30000));
+          const marketPrice = boughtPrice || (matchedAsset.amount && currentQty > 0 ? Math.round(matchedAsset.amount / currentQty) : 32000);
+
+          const updatedAsset: Asset = {
+            ...matchedAsset,
+            quantity: newQty,
+            costPrice: finalCost,
+            amount: newQty * marketPrice,
+            updatedAt: new Date().toLocaleDateString('vi-VN'),
+          };
+          onUpdateAssetDirectly(updatedAsset);
+        } else if (matchedAsset.type === 'gold') {
+          const currentQty = matchedAsset.quantity || 0;
+          const newQty = currentQty + boughtVal;
+          const oldCost = matchedAsset.costPrice || (currentQty * (goal.unitPrice || 8200000));
+          const finalCost = oldCost + (boughtVal * (boughtPrice || 8650000));
+          const marketPrice = boughtPrice || (matchedAsset.amount && currentQty > 0 ? Math.round(matchedAsset.amount / currentQty) : 8650000);
+
+          const updatedAsset: Asset = {
+            ...matchedAsset,
+            quantity: newQty,
+            costPrice: finalCost,
+            amount: newQty * marketPrice,
+            updatedAt: new Date().toLocaleDateString('vi-VN'),
+          };
+          onUpdateAssetDirectly(updatedAsset);
+        }
       } else {
-        newAsset = {
-          id: Date.now(),
-          level: '1',
-          type: 'saving',
-          name: goal.name,
-          amount: boughtVal,
-          updatedAt: new Date().toLocaleDateString('vi-VN'),
-        };
+        // Tự tạo tài sản mới trong Tab 1 nếu chưa tồn tại
+        let newAsset: Asset;
+        if (goal.assetType === 'stock' || goal.unit === 'CP') {
+          const price = boughtPrice || 32000;
+          newAsset = {
+            id: Date.now(),
+            level: '2',
+            type: 'stock',
+            name: goal.name,
+            amount: boughtVal * price,
+            costPrice: boughtVal * price,
+            quantity: boughtVal,
+            updatedAt: new Date().toLocaleDateString('vi-VN'),
+          };
+        } else if (goal.assetType === 'gold' || goal.unit === 'chỉ' || goal.unit === 'lượng') {
+          const price = boughtPrice || 8650000;
+          newAsset = {
+            id: Date.now(),
+            level: '1',
+            type: 'gold',
+            name: goal.name,
+            amount: boughtVal * price,
+            costPrice: boughtVal * price,
+            quantity: boughtVal,
+            updatedAt: new Date().toLocaleDateString('vi-VN'),
+          };
+        } else {
+          newAsset = {
+            id: Date.now(),
+            level: '1',
+            type: 'saving',
+            name: goal.name,
+            amount: boughtVal,
+            updatedAt: new Date().toLocaleDateString('vi-VN'),
+          };
+        }
+        onUpdateAssetDirectly(newAsset);
+        onUpdateGoal({
+          ...updatedGoal,
+          linkedAssetId: newAsset.id,
+        });
       }
-      onUpdateAssetDirectly(newAsset);
-      onUpdateGoal({
-        ...updatedGoal,
-        linkedAssetId: newAsset.id,
-      });
-      alert(
-        `✓ Đã tự động tạo mới tài sản "${goal.name}" trên Tháp Tài Sản (Tab 1) và liên kết thành công!\nSố dư ban đầu: ${formatVND(newAsset.amount)}.`
-      );
     }
+
+    setDcaDepositGoal(null);
+    showToast(
+      `✓ Đã nạp thành công ${formatNumberString(boughtVal)} ${goal.unit} vào "${goal.name}"! Tự động cập nhật số dư Tháp Tài Sản (Tab 1).`,
+      'success'
+    );
   };
 
   // Complete Goal and Auto Sync with Tab 1 or Tab 2!
@@ -913,18 +1094,6 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
     };
     onUpdateGoal(updatedGoal);
     alert(`✓ Đã hoàn thành mục tiêu "${goal.name}" thành công! Dữ liệu đã đồng bộ xuyên suốt hệ thống.`);
-  };
-
-  // Carry over DCA backlog to next period
-  const handleCarryOverBacklog = (goal: Goal) => {
-    if (confirm(`Chuyển định mức ${formatNumberString(goal.targetQty)} ${goal.unit} chưa mua kỳ này thành nợ chỉ tiêu dồn sang kỳ sau?`)) {
-      const updatedGoal: Goal = {
-        ...goal,
-        backlogQty: (goal.backlogQty || 0) + (goal.targetQty || 0),
-        lastBoughtPeriod: `missed_${currentPeriodStr}`,
-      };
-      onUpdateGoal(updatedGoal);
-    }
   };
 
   // Stress-test simulation auto-fill
@@ -1697,7 +1866,7 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
         </div>
       </div>
 
-      {/* GOAL FORM MODAL OVERLAY (Responsive Bottom Sheet on Mobile, Click outside backdrop to exit) */}
+      {/* GOAL FORM MODAL OVERLAY (Responsive Bottom Sheet on Mobile, Centered Modal on Desktop) */}
       {showGoalForm && (
         <div
           onClick={handleCancelForm}
@@ -1712,15 +1881,32 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
             }`}
           >
             {/* Mobile Drag Handle Indicator */}
-            <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto mb-1 sm:hidden"></div>
+            <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-1 sm:hidden"></div>
+            
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="min-w-0 flex-1 mr-2">
-                <h3 className="text-sm font-bold text-slate-900 flex items-center">
-                  <Target className="w-4 h-4 text-blue-600 mr-2 shrink-0" />
-                  <span className="truncate">{editingGoalId ? `Chỉnh Sửa Mục Tiêu: ${goalName}` : 'Thiết Lập Mục Tiêu Hoạch Định'}</span>
-                </h3>
-                <p className="text-[11px] text-slate-500 truncate">
-                  Đồng bộ liên kết chính xác từ Tab 1 & Tab 2 • Tùy biến chu kỳ • Nhắc hẹn ngày chốt
+              <div className="min-w-0 flex-1 mr-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center">
+                    <Target className="w-4 h-4 text-emerald-600 mr-1.5 shrink-0" />
+                    <span className="truncate">
+                      {editingGoalId ? `Sửa Mục Tiêu: ${goalName || 'Mục tiêu'}` : 'Thiết Lập Mục Tiêu Hoạch Định'}
+                    </span>
+                  </h3>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 ${
+                      formMode === 'dca'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-blue-50 text-blue-800 border-blue-200'
+                    }`}
+                  >
+                    {formMode === 'dca' ? 'Tích Sản Định Kỳ (DCA)' : 'Cột Mốc Lớn'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                  {editingGoalId
+                    ? 'Chỉnh sửa định mức cam kết, số lượng lũy kế và liên kết danh mục tài sản'
+                    : 'Đồng bộ liên kết chính xác từ Tab 1 & Tab 2 • Tùy biến chu kỳ • Nhắc hẹn ngày chốt'}
                 </p>
               </div>
               <button
@@ -1733,402 +1919,472 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
               </button>
             </div>
 
-          {/* Goal Mode Switcher */}
-          <div className="flex p-1 bg-slate-100 rounded-xl max-w-md">
-            <button
-              type="button"
-              onClick={() => {
-                setFormMode('dca');
-                setGoalGroup('dca');
-              }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
-                formMode === 'dca' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              <i className="fa-solid fa-calendar-check text-amber-500 mr-1.5"></i>
-              <span>Tích Sản Định Kỳ (DCA)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setFormMode('milestone');
-                if (goalGroup === 'dca') setGoalGroup('milestone');
-              }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
-                formMode === 'milestone' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              <i className="fa-solid fa-flag-checkered text-blue-600 mr-1.5"></i>
-              <span>Cột Mốc Lớn (Milestone)</span>
-            </button>
-          </div>
-
-          {/* Phân nhóm mục tiêu */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                1. Phân Nhóm 4 Trụ Cột Mục Tiêu
-              </label>
-              <select
-                value={goalGroup}
-                onChange={(e) => setGoalGroup(e.target.value as any)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-blue-500"
-              >
-                <option value="dca">Nhóm 2: Tích Sản Định Kỳ (Cổ phiếu, Vàng, Tiền gửi...)</option>
-                <option value="runway">Nhóm 3: Quỹ Dự Phòng Thanh Khoản (Khẩn cấp 3-6-12T)</option>
-                <option value="debt">Nhóm 1: Trả Nợ Vay & Giảm Đòn Bẩy (Liên kết nợ Tab 2)</option>
-                <option value="milestone">Nhóm 4: Cột Mốc Lớn / Quỹ BĐS / FIRE</option>
-              </select>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-xs text-slate-700 flex items-center">
-              {goalGroupLabels[goalGroup].desc}
-            </div>
-          </div>
-
-          {/* DCA MODE FORM SECTION */}
-          {formMode === 'dca' ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Loại Tài Sản</label>
-                  <select
-                    value={assetType}
-                    onChange={(e) => handleAssetTypeChange(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-emerald-500"
+            {/* When Creating New: Goal Mode Switcher & Group Select */}
+            {!editingGoalId && (
+              <div className="space-y-3">
+                <div className="flex p-1 bg-slate-100 rounded-xl max-w-md">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormMode('dca');
+                      setGoalGroup('dca');
+                    }}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                      formMode === 'dca' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                    }`}
                   >
-                    <option value="stock">Cổ Phiếu / ETF Tích Sản</option>
-                    <option value="gold">Vàng Vật Chất (Nhẫn tròn / SJC)</option>
-                    <option value="saving">Tiền Tiết Kiệm Định Kỳ</option>
-                    <option value="cash">Tiền Mặt / Quỹ Thanh Khoản</option>
-                  </select>
+                    <i className="fa-solid fa-calendar-check text-amber-500"></i>
+                    <span>Tích Sản Định Kỳ (DCA)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormMode('milestone');
+                      if (goalGroup === 'dca') setGoalGroup('milestone');
+                    }}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                      formMode === 'milestone' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    <i className="fa-solid fa-flag-checkered text-blue-600"></i>
+                    <span>Cột Mốc Lớn (Milestone)</span>
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Liên Kết Tài Sản Tab 1 (Chính xác)
-                  </label>
-                  <div className="space-y-1.5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Phân Nhóm Trụ Cột Mục Tiêu
+                    </label>
                     <select
-                      value={linkedAssetId || ''}
-                      onChange={(e) => handleSelectAssetFromTab1(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none"
+                      value={goalGroup}
+                      onChange={(e) => setGoalGroup(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:border-blue-500"
                     >
-                      <option value="">-- Chọn tài sản từ Tab 1 --</option>
-                      {db.assets.some((a) => a.type === 'saving') && (
-                        <optgroup label="Sổ Tiết Kiệm (Tab 1)">
-                          {db.assets
-                            .filter((a) => a.type === 'saving')
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                🏦 {a.name} (Số dư: {formatVND(a.amount)}{a.rate ? ` • Lãi: ${a.rate}%` : ''}{a.maturityDate ? ` • Đáo hạn: ${a.maturityDate}` : ''})
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
-                      {db.assets.some((a) => a.type === 'stock') && (
-                        <optgroup label="Cổ Phiếu / Quỹ Đầu Tư (Tab 1)">
-                          {db.assets
-                            .filter((a) => a.type === 'stock')
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                📈 {a.name} ({formatNumberString(a.quantity || 0)} CP • {formatVND(a.amount)})
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
-                      {db.assets.some((a) => a.type === 'gold') && (
-                        <optgroup label="Vàng Vật Chất (Tab 1)">
-                          {db.assets
-                            .filter((a) => a.type === 'gold')
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                🪙 {a.name} ({formatNumberString(a.quantity || 0)} chỉ • {formatVND(a.amount)})
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
-                      {db.assets.some((a) => a.type === 'cash') && (
-                        <optgroup label="Tiền Mặt & Quỹ Thanh Khoản (Tab 1)">
-                          {db.assets
-                            .filter((a) => a.type === 'cash')
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                💵 {a.name} ({formatVND(a.amount)})
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
-                      {db.assets.some((a) => a.type !== 'saving' && a.type !== 'stock' && a.type !== 'gold' && a.type !== 'cash') && (
-                        <optgroup label="Tài Sản Khác (Tab 1)">
-                          {db.assets
-                            .filter((a) => a.type !== 'saving' && a.type !== 'stock' && a.type !== 'gold' && a.type !== 'cash')
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                📦 {a.name} ({formatVND(a.amount)})
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
+                      <option value="dca">Nhóm 2: Tích Sản Định Kỳ (Cổ phiếu, Vàng, Tiền gửi...)</option>
+                      <option value="runway">Nhóm 3: Quỹ Dự Phòng Thanh Khoản (Khẩn cấp 3-6-12T)</option>
+                      <option value="debt">Nhóm 1: Trả Nợ Vay & Giảm Đòn Bẩy (Liên kết nợ Tab 2)</option>
+                      <option value="milestone">Nhóm 4: Cột Mốc Lớn / Quỹ BĐS / FIRE</option>
                     </select>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] text-slate-600 flex items-center">
+                    {goalGroupLabels[goalGroup].desc}
+                  </div>
+                </div>
+              </div>
+            )}
 
+            {/* DCA MODE FORM SECTION */}
+            {formMode === 'dca' ? (
+              <div className="space-y-3.5">
+                {/* Row 1: Loại tài sản & Liên kết Tab 1 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Loại Tài Sản</label>
+                    <select
+                      value={assetType}
+                      onChange={(e) => handleAssetTypeChange(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:border-emerald-500"
+                    >
+                      <option value="stock">Cổ Phiếu / ETF Tích Sản</option>
+                      <option value="gold">Vàng Vật Chất (Nhẫn tròn / SJC)</option>
+                      <option value="saving">Tiền Tiết Kiệm Định Kỳ</option>
+                      <option value="cash">Tiền Mặt / Quỹ Thanh Khoản</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Liên Kết Danh Mục (Tab 1) / Tên Mục Tiêu
+                    </label>
+                    <div className="space-y-1.5">
+                      <select
+                        value={linkedAssetId || ''}
+                        onChange={(e) => handleSelectAssetFromTab1(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-800 outline-none truncate"
+                      >
+                        <option value="">-- Chọn từ Tab 1 --</option>
+                        {db.assets.some((a) => a.type === 'saving') && (
+                          <optgroup label="Sổ Tiết Kiệm (Tab 1)">
+                            {db.assets
+                              .filter((a) => a.type === 'saving')
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  🏦 {a.name} ({formatVND(a.amount)})
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                        {db.assets.some((a) => a.type === 'stock') && (
+                          <optgroup label="Cổ Phiếu (Tab 1)">
+                            {db.assets
+                              .filter((a) => a.type === 'stock')
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  📈 {a.name} ({formatNumberString(a.quantity || 0)} CP)
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                        {db.assets.some((a) => a.type === 'gold') && (
+                          <optgroup label="Vàng (Tab 1)">
+                            {db.assets
+                              .filter((a) => a.type === 'gold')
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  🪙 {a.name} ({formatNumberString(a.quantity || 0)} chỉ)
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                        {db.assets.some((a) => a.type === 'cash') && (
+                          <optgroup label="Tiền Mặt (Tab 1)">
+                            {db.assets
+                              .filter((a) => a.type === 'cash')
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  💵 {a.name} ({formatVND(a.amount)})
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                      </select>
+
+                      <input
+                        ref={formMode === 'dca' ? goalNameInputRef : undefined}
+                        type="text"
+                        value={goalName}
+                        onChange={(e) => setGoalName(e.target.value)}
+                        placeholder="Hoặc tự gõ tên mục tiêu..."
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 2: Kỳ hạn & Ngày chốt + Định mức mỗi kỳ & Đơn vị */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Kỳ Hạn & Ngày Chốt</label>
+                    <div className="flex gap-1.5">
+                      <select
+                        value={freqMonths}
+                        onChange={(e) => setFreqMonths(Number(e.target.value) || 1)}
+                        className="flex-1 bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:border-emerald-500 min-w-0"
+                        title="Kỳ hạn nạp lặp lại"
+                      >
+                        <option value="1">1 Tháng (Hàng tháng)</option>
+                        <option value="2">2 Tháng một lần</option>
+                        <option value="3">3 Tháng (Hàng quý)</option>
+                        <option value="6">6 Tháng (Nửa năm)</option>
+                        <option value="12">1 Năm (Hàng năm)</option>
+                      </select>
+                      <div className="relative flex items-center shrink-0">
+                        <span className="absolute left-2.5 text-[10px] font-bold text-slate-400">N</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={goalDay}
+                          onChange={(e) => setGoalDay(Number(e.target.value) || 1)}
+                          placeholder="10"
+                          className="w-16 bg-slate-50 border border-slate-300 rounded-xl p-2 pl-6 text-xs font-bold outline-none text-center"
+                          title="Ngày chốt định kỳ trong tháng (1-31)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Định Mức Mỗi Kỳ & Đơn Vị (hỗ trợ số lẻ như 1.5 hoặc 0.5)
+                    </label>
+                    <div className="flex rounded-xl border border-slate-300 bg-slate-50 overflow-hidden focus-within:border-emerald-500 focus-within:bg-white transition">
+                      <input
+                        type="text"
+                        value={targetQtyStr}
+                        onChange={(e) => setTargetQtyStr(e.target.value)}
+                        placeholder={unit === 'VNĐ' ? 'Nhập số tiền nạp định kỳ...' : 'VD: 1.5 hoặc 0.5'}
+                        className="flex-1 bg-transparent p-2 text-xs font-bold text-emerald-700 outline-none min-w-0"
+                      />
+                      <select
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        className="w-24 bg-slate-100 border-l border-slate-300 px-2 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer shrink-0"
+                        title="Đơn vị tính"
+                      >
+                        <option value="CP">CP</option>
+                        <option value="chỉ">chỉ</option>
+                        <option value="lượng">lượng</option>
+                        <option value="VNĐ">VNĐ</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 3: Khối lượng lũy kế & Giá vốn & Giá thị trường */}
+                <div className="bg-slate-50/80 border border-slate-200 p-3.5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <i className="fa-solid fa-calculator text-emerald-600"></i>
+                      <span>Khối Lượng Lũy Kế & Đơn Giá</span>
+                    </label>
+                    <span className="text-[10px] text-slate-600 bg-white px-2 py-0.5 rounded-md font-semibold border border-slate-200">
+                      Đồng bộ 2 chiều Tab 1 & Tab 3
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    <div>
+                      <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                        Lũy kế đã có ({unit})
+                      </label>
+                      <input
+                        type="text"
+                        value={editTotalBoughtStr}
+                        onChange={(e) => setEditTotalBoughtStr(e.target.value)}
+                        placeholder="VD: 5.5"
+                        className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-emerald-700 outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                        Nợ kỳ trước bù ({unit})
+                      </label>
+                      <input
+                        type="text"
+                        value={editBacklogQtyStr}
+                        onChange={(e) => setEditBacklogQtyStr(e.target.value)}
+                        placeholder="VD: 1.5"
+                        className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-rose-700 outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    {(assetType === 'stock' || assetType === 'gold' || unit === 'CP' || unit === 'chỉ' || unit === 'lượng') ? (
+                      <>
+                        <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-col justify-between">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500">Giá Vốn TB</span>
+                            <span className="px-1.5 py-0.2 rounded text-[8px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              Từ Lịch Sử
+                            </span>
+                          </div>
+                          <div className="text-xs font-black text-slate-900 mt-1">
+                            {formatVND(parseFormattedNumber(editUnitPriceStr) || 0, isPrivacyMode)}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (editingGoalId) {
+                                const g = db.goals.find((item) => item.id === editingGoalId);
+                                if (g) handleOpenHistory(g);
+                              } else {
+                                const tempGoal: Goal = {
+                                  id: Date.now(),
+                                  group: goalGroup,
+                                  goalType: 'dca',
+                                  assetType,
+                                  linkedAssetId,
+                                  name: goalName || 'Mục tiêu mới',
+                                  unit,
+                                };
+                                handleOpenHistory(tempGoal);
+                              }
+                            }}
+                            className="mt-1 text-[10px] font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                          >
+                            <History className="w-3 h-3 text-blue-600" />
+                            <span>Quản lý Lịch sử</span>
+                          </button>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                            Đơn giá thị trường
+                          </label>
+                          <input
+                            type="text"
+                            value={editCurrentPriceStr}
+                            onChange={(e) => setEditCurrentPriceStr(formatNumberString(e.target.value))}
+                            placeholder={assetType === 'gold' ? '8.650.000' : '32.000'}
+                            className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-blue-700 outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="sm:col-span-2 flex items-center text-[11px] text-slate-500 bg-white p-2 rounded-xl border border-slate-200">
+                        <span>Đang quản lý tích lũy theo dòng tiền VNĐ trực tiếp.</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {(linkedAssetId || db.assets.some((a) => a.name.toLowerCase() === goalName.trim().toLowerCase())) && (
+                    <label className="flex items-center space-x-2 pt-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={editSyncToAsset}
+                        onChange={(e) => setEditSyncToAsset(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <span className="text-[11px] font-bold text-slate-700">
+                        Tự động đồng bộ số lượng, đơn giá và giá trị sang Tháp Tài Sản (Tab 1)
+                      </span>
+                    </label>
+                  )}
+
+                  {/* Trạng thái nạp kỳ hiện tại (currentPeriodStr) */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">
+                        Trạng Thái Nạp Kỳ Này ({currentPeriodStr})
+                      </span>
+                      <span className="text-[10.5px] text-slate-500 block">
+                        {editIsPaidThisPeriod
+                          ? 'Đã hoàn thành định mức nạp của kỳ này'
+                          : 'Chưa nạp / Đang chờ tích lũy trong kỳ'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditIsPaidThisPeriod(!editIsPaidThisPeriod)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shrink-0 ${
+                        editIsPaidThisPeriod
+                          ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-100 hover:bg-amber-200 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      {editIsPaidThisPeriod ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Đã nạp kỳ này</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Chờ nạp kỳ này</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* MILESTONE MODE FORM SECTION */
+              <div className="space-y-3.5">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  {goalGroup === 'debt' && (
+                    <div className="md:col-span-4 bg-rose-50 border border-rose-200 p-3 rounded-xl">
+                      <label className="block text-[11px] font-bold text-rose-900 mb-1">
+                        Chọn Khoản Nợ Cần Tất Toán Từ Tab 2 (Tự động điền dư nợ)
+                      </label>
+                      <select
+                        value={linkedDebtId || ''}
+                        onChange={(e) => handleSelectDebtFromTab2(e.target.value)}
+                        className="w-full bg-white border border-rose-300 rounded-lg p-2 text-xs font-bold text-rose-800 outline-none"
+                      >
+                        <option value="">-- Chọn khoản nợ từ Tab 2 --</option>
+                        {db.debts
+                          .filter((d) => d.status !== 'Đã tất toán')
+                          .map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name} (Dư nợ gốc: {formatVND(Math.max(0, d.amount - (d.paidPrincipal || 0)))})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="md:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Tên Cột Mốc</label>
                     <input
-                      ref={formMode === 'dca' ? goalNameInputRef : undefined}
+                      ref={formMode === 'milestone' ? goalNameInputRef : undefined}
                       type="text"
                       value={goalName}
                       onChange={(e) => setGoalName(e.target.value)}
-                      placeholder="Hoặc tự gõ tên mục tiêu..."
+                      placeholder="VD: Mua nhà đất / Quỹ hưu trí..."
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Số Tiền Mục Tiêu (VNĐ)
+                    </label>
+                    <input
+                      type="text"
+                      value={goalTargetStr}
+                      onChange={(e) => setGoalTargetStr(formatNumberString(e.target.value))}
+                      placeholder="0"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-bold text-blue-700 outline-none focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Thời Hạn (Năm)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={goalYears}
+                      onChange={(e) => setGoalYears(Number(e.target.value) || 1)}
+                      placeholder="3"
                       className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:bg-white"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Kỳ Hạn Mua / Nạp</label>
-                  <select
-                    value={freqMonths}
-                    onChange={(e) => setFreqMonths(Number(e.target.value) || 1)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-emerald-500"
-                  >
-                    <option value="1">1 Tháng (Hàng tháng)</option>
-                    <option value="2">2 Tháng một lần</option>
-                    <option value="3">3 Tháng (Hàng quý)</option>
-                    <option value="6">6 Tháng (Nửa năm)</option>
-                    <option value="12">1 Năm (Hàng năm)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Định Mức & Ngày Chốt
-                  </label>
-                  <div className="flex space-x-1.5">
-                    <input
-                      type="text"
-                      value={targetQtyStr}
-                      onChange={(e) => setTargetQtyStr(formatNumberString(e.target.value))}
-                      placeholder={unit === 'VNĐ' ? 'Số tiền' : 'Số lượng'}
-                      className="w-1/2 bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-emerald-700 outline-none"
-                    />
-                    <select
-                      value={unit}
-                      onChange={(e) => setUnit(e.target.value)}
-                      className="w-1/4 bg-slate-50 border border-slate-300 rounded-xl px-1 text-xs font-bold outline-none"
-                    >
-                      <option value="CP">CP</option>
-                      <option value="chỉ">chỉ</option>
-                      <option value="lượng">lượng</option>
-                      <option value="VNĐ">VNĐ</option>
-                    </select>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={goalDay}
-                      onChange={(e) => setGoalDay(Number(e.target.value) || 1)}
-                      placeholder="Ngày"
-                      className="w-1/4 bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none"
-                      title="Ngày chốt định kỳ trong tháng"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Tab 1 Linked Info Badge */}
-              {linkedAssetId && (
-                <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-800 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <LinkIcon className="w-3.5 h-3.5 text-emerald-600" />
+                {parseFormattedNumber(goalTargetStr) > 0 && goalYears > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-900 font-semibold flex items-center justify-between">
                     <span>
-                      <b>Đã liên kết chính xác với Tab 1:</b>{' '}
-                      {(() => {
-                        const a = db.assets.find((item) => item.id === linkedAssetId);
-                        if (!a) return 'Chưa kết nối';
-                        if (a.type === 'saving') {
-                          return `Sổ tiết kiệm "${a.name}" • Số dư hiện tại: ${formatVND(a.amount)}${
-                            a.rate ? ` • Lãi suất: ${a.rate}%/năm` : ''
-                          }`;
-                        } else if (a.type === 'stock') {
-                          return `Cổ phiếu "${a.name}" • Số lượng hiện có: ${formatNumberString(a.quantity || 0)} CP`;
-                        } else if (a.type === 'gold') {
-                          return `Vàng "${a.name}" • Số lượng hiện có: ${formatNumberString(a.quantity || 0)} chỉ`;
-                        }
-                        return `${a.name} • Số dư: ${formatVND(a.amount)}`;
-                      })()}
+                      📅 Cần trích lũy:{' '}
+                      <b className="text-blue-700">
+                        {formatVND(Math.round(parseFormattedNumber(goalTargetStr) / goalYears))} / năm
+                      </b>{' '}
+                      (≈{' '}
+                      <b className="text-blue-700">
+                        {formatVND(Math.round(parseFormattedNumber(goalTargetStr) / (goalYears * 12)))} / tháng
+                      </b>
+                      )
                     </span>
-                  </span>
-                  <span className="text-[11px] text-emerald-700 italic">
-                    Khi bấm "Đã mua kỳ này", số tiền/SL sẽ được tự động cộng vào Tab 1
-                  </span>
-                </div>
-              )}
-
-              {/* Phần điều chỉnh Kết Quả Đã Tích Lũy Lũy Kế & Nợ Kỳ Trước */}
-              <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                    <i className="fa-solid fa-pen-to-square text-amber-600"></i>
-                    <span>Kết Quả Đã Tích Lũy Thực Tế & Lũy Kế</span>
-                  </label>
-                  <span className="text-[10px] text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md font-semibold border border-amber-300">
-                    {editingGoalId ? 'Chỉnh sửa kết quả tích lũy' : 'Nhập kết quả đã có sẵn'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Lũy kế đã tích lũy đến nay ({unit})
-                    </label>
-                    <input
-                      type="text"
-                      value={editTotalBoughtStr}
-                      onChange={(e) => setEditTotalBoughtStr(formatNumberString(e.target.value))}
-                      placeholder="0"
-                      className="w-full bg-white border border-amber-300 rounded-xl p-2.5 text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-0.5">
-                      Tổng số {unit} đã mua/nạp thành công trong toàn bộ quá trình.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Nợ kỳ trước chưa nạp đủ ({unit})
-                    </label>
-                    <input
-                      type="text"
-                      value={editBacklogQtyStr}
-                      onChange={(e) => setEditBacklogQtyStr(formatNumberString(e.target.value))}
-                      placeholder="0"
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-700 outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-0.5">
-                      Số lượng còn nợ từ các kỳ trước cần gom nạp bù.
-                    </p>
-                  </div>
-                </div>
-
-                {(linkedAssetId || db.assets.some((a) => a.name.toLowerCase() === goalName.trim().toLowerCase())) && (
-                  <label className="flex items-center space-x-2 pt-1 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={editSyncToAsset}
-                      onChange={(e) => setEditSyncToAsset(e.target.checked)}
-                      className="w-4 h-4 rounded border-amber-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                    />
-                    <span className="text-xs font-bold text-amber-900">
-                      Đồng bộ cập nhật số dư này sang tài sản liên kết ở Tháp Tài Sản (Tab 1)
+                    <span className="text-[11px] text-blue-600">
+                      Hạn:{' '}
+                      {calculateMilestoneDueDate(currentPeriodStr, goalYears).targetPeriodStr}
                     </span>
-                  </label>
+                  </div>
                 )}
               </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">Ghi Chú Kế Hoạch</label>
+              <input
+                type="text"
+                value={goalNote}
+                onChange={(e) => setGoalNote(e.target.value)}
+                placeholder="VD: Điều kiện ưu tiên, ghi nhớ..."
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:bg-white"
+              />
             </div>
-          ) : (
-            /* MILESTONE MODE FORM SECTION */
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                {goalGroup === 'debt' && (
-                  <div className="md:col-span-4 bg-rose-50 border border-rose-200 p-3 rounded-xl">
-                    <label className="block text-[11px] font-bold text-rose-900 mb-1">
-                      Chọn Khoản Nợ Cần Tất Toán Từ Tab 2 (Tự động điền dư nợ)
-                    </label>
-                    <select
-                      value={linkedDebtId || ''}
-                      onChange={(e) => handleSelectDebtFromTab2(e.target.value)}
-                      className="w-full bg-white border border-rose-300 rounded-lg p-2 text-xs font-bold text-rose-800 outline-none"
-                    >
-                      <option value="">-- Chọn khoản nợ từ Tab 2 --</option>
-                      {db.debts
-                        .filter((d) => d.status !== 'Đã tất toán')
-                        .map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name} (Dư nợ gốc: {formatVND(Math.max(0, d.amount - (d.paidPrincipal || 0)))})
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
 
-                <div className="md:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Tên Cột Mốc</label>
-                  <input
-                    ref={formMode === 'milestone' ? goalNameInputRef : undefined}
-                    type="text"
-                    value={goalName}
-                    onChange={(e) => setGoalName(e.target.value)}
-                    placeholder="VD: Mua nhà đất ven đô / Quỹ hưu trí..."
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Tổng Số Tiền Mục Tiêu (VNĐ)
-                  </label>
-                  <input
-                    type="text"
-                    value={goalTargetStr}
-                    onChange={(e) => setGoalTargetStr(formatNumberString(e.target.value))}
-                    placeholder="0"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-blue-700 outline-none focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Thời Hạn Hoàn Thành (Năm)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={goalYears}
-                    onChange={(e) => setGoalYears(Number(e.target.value) || 1)}
-                    placeholder="VD: 3"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                  />
-                </div>
-              </div>
-
-              {parseFormattedNumber(goalTargetStr) > 0 && goalYears > 0 && (
-                <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-900 font-semibold flex items-center justify-between">
-                  <span>
-                    📅 <b>Phân rã tiến độ:</b> Cần trích lũy trung bình{' '}
-                    <b className="text-blue-700">
-                      {formatVND(Math.round(parseFormattedNumber(goalTargetStr) / goalYears))} / năm
-                    </b>{' '}
-                    (≈{' '}
-                    <b className="text-blue-700">
-                      {formatVND(Math.round(parseFormattedNumber(goalTargetStr) / (goalYears * 12)))} / tháng
-                    </b>
-                    ).
-                  </span>
-                  <span className="text-[11px] text-blue-600">
-                    Hạn chót:{' '}
-                    {calculateMilestoneDueDate(currentPeriodStr, goalYears).targetPeriodStr}
-                  </span>
-                </div>
-              )}
+            {/* Modal Actions Footer */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCancelForm}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-sm"
+              >
+                {editingGoalId ? '✓ Cập Nhật Thay Đổi Mục Tiêu' : '+ Lưu Mục Tiêu Vào Kế Hoạch'}
+              </button>
             </div>
-          )}
-
-          <div className="pt-1">
-            <label className="block text-[11px] font-bold text-slate-600 mb-1">Ghi Chú Kế Hoạch</label>
-            <input
-              type="text"
-              value={goalNote}
-              onChange={(e) => setGoalNote(e.target.value)}
-              placeholder="VD: Điều kiện ưu tiên, tài khoản đích, ghi nhớ..."
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none focus:bg-white"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
-          >
-            {editingGoalId ? '✓ Cập Nhật Thay Đổi Mục Tiêu' : '+ Lưu Mục Tiêu Vào Kế Hoạch'}
-          </button>
           </form>
         </div>
       )}
@@ -2169,10 +2425,10 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
 
         {showGoalTable && (
           <div className="border-t border-slate-100 p-2.5 sm:p-5 pt-2 sm:pt-3 space-y-2 sm:space-y-4">
-            {/* 1. DEDICATED MOBILE VIEW (< md) - COMPACT CARD LIST */}
+            {/* 1. DEDICATED MOBILE VIEW (< md) - COMPACT CLEAN CARD LIST */}
             <div className="md:hidden space-y-2">
               {filteredGoals.length === 0 ? (
-                <div className="p-3 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                <div className="p-4 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
                   Chưa có mục tiêu nào phù hợp với bộ lọc hiện tại.
                 </div>
               ) : (
@@ -2203,431 +2459,222 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
                     g.years || 1
                   );
 
-                  const milestoneProgress =
-                    !isDCA && g.target && g.target > 0
-                      ? Math.min(100, Math.round((netWorth / g.target) * 100))
-                      : 0;
+                  // Unit price and estimated period amount
+                  const isGold = g.assetType === 'gold' || g.unit === 'chỉ' || g.unit === 'lượng';
+                  const isStock = g.assetType === 'stock' || g.unit === 'CP';
+                  const unitCostPrice = g.unitPrice || (g.costPrice && g.totalBought ? Math.round(g.costPrice / g.totalBought) : (isGold ? 8200000 : isStock ? 30000 : 0));
+                  const unitMktPrice = g.currentPrice || (isGold ? 8650000 : isStock ? 32000 : 0);
+                  const estPeriodCost = isDCA
+                    ? isGold || isStock
+                      ? (g.targetQty || 0) * (unitMktPrice || unitCostPrice)
+                      : (g.targetAmountPerPeriod || g.targetQty || 0)
+                    : 0;
 
                   return (
                     <div
                       key={g.id}
-                      className={`bg-slate-50/80 hover:bg-slate-50 rounded-xl border border-slate-200 p-2.5 space-y-2 transition shadow-2xs ${
-                        g.status === 'completed' ? 'opacity-70 bg-emerald-50/30' : ''
+                      className={`bg-white hover:bg-slate-50/80 rounded-xl border border-slate-200 p-3 space-y-2.5 transition shadow-xs ${
+                        g.status === 'completed' ? 'opacity-75 bg-emerald-50/20' : ''
                       }`}
                     >
-                      {/* Row 1: STT, Group Badge, Name, Edit/Delete */}
-                      <div className="flex items-center justify-between gap-1.5">
+                      {/* Row 1: STT, Group Badge, Name & Tab 1/Tab 2 Link */}
+                      <div className="flex items-center justify-between gap-1.5 flex-wrap">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <span className="w-4 h-4 rounded bg-slate-200 text-slate-700 text-[9px] font-bold flex items-center justify-center shrink-0">
+                          <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold flex items-center justify-center shrink-0 border border-slate-200">
                             {index + 1}
                           </span>
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold border shrink-0 ${groupMeta.bg} ${groupMeta.color}`}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${groupMeta.bg} ${groupMeta.color}`}
                           >
                             {groupMeta.label}
                           </span>
                           <span className="text-xs font-bold text-slate-900 truncate block leading-tight">{g.name}</span>
                         </div>
-
-                        {/* Status & Edit/Delete actions */}
-                        <div className="flex items-center space-x-1 shrink-0">
-                          {g.status === 'completed' && (
-                            <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              ✓ Đã đạt
-                            </span>
-                          )}
-                          <button
-                            onClick={() => handleEditGoal(g)}
-                            className="p-1 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition active:scale-95 cursor-pointer"
-                            title="Sửa mục tiêu"
-                          >
-                            <Pen className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Bạn có chắc muốn xóa mục tiêu "${g.name}"?`)) {
-                                onRemoveGoal(g.id);
-                              }
-                            }}
-                            className="p-1 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-md transition active:scale-95 cursor-pointer"
-                            title="Xóa mục tiêu"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
+                        {g.status === 'completed' && (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
+                            ✓ Đã đạt
+                          </span>
+                        )}
                       </div>
 
-                      {/* Row 2: 2-Column Info Grid */}
-                      <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-200/70 text-xs">
-                        <div>
-                          <span className="text-[9px] text-slate-400 font-medium block leading-tight">Định mức cam kết</span>
+                      {/* Row 2: 2-Column Clean Info Grid (Định mức cam kết có Đơn Giá & Lịch hạn/Trạng thái) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                        {/* Cột Trái: Định mức cam kết, Đơn giá & Ước tính tiền nạp */}
+                        <div className="bg-slate-50/70 p-2.5 rounded-lg border border-slate-100 space-y-1">
+                          <span className="text-[9.5px] text-slate-400 font-bold block uppercase tracking-tight">Định mức & Đơn giá</span>
                           {isDCA ? (
-                            <div className="mt-0.5">
-                              <span className="text-xs font-black text-slate-900">
-                                {formatNumberString(g.targetQty)} {g.unit}
-                              </span>
-                              <span className="text-[9.5px] text-slate-500 block leading-tight">
-                                {freqLabel} • N{g.day || 10}
-                              </span>
+                            <div>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-xs font-black text-slate-900">
+                                  {formatNumberString(g.targetQty)} {g.unit}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                  ({freqLabel} • Ngày {g.day || 10})
+                                </span>
+                              </div>
+                              {/* Hiển thị Đơn Giá Vốn TB & Giá Thị Trường */}
+                              {(isGold || isStock) && (
+                                <div className="mt-1 flex flex-wrap items-center gap-1 text-[9.5px]">
+                                  {unitCostPrice > 0 && (
+                                    <span className="inline-block bg-white text-slate-700 px-1.5 py-0.2 rounded font-semibold border border-slate-200">
+                                      Vốn TB: {formatVND(unitCostPrice, isPrivacyMode)}
+                                    </span>
+                                  )}
+                                  {unitMktPrice > 0 && (
+                                    <span className="inline-block bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded font-semibold border border-blue-200">
+                                      Giá TT: {formatVND(unitMktPrice, isPrivacyMode)}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {estPeriodCost > 0 && (
+                                <div className="text-[10px] text-emerald-700 font-bold mt-0.5">
+                                  ≈ {formatVND(estPeriodCost, isPrivacyMode)} / kỳ
+                                </div>
+                              )}
                             </div>
                           ) : (
-                            <div className="mt-0.5">
-                              <span className="text-xs font-black text-blue-700">
+                            <div>
+                              <div className="text-xs font-black text-blue-700">
                                 {formatVND(g.target, isPrivacyMode)}
-                              </span>
-                              <span className="text-[9.5px] text-slate-500 block leading-tight">
-                                {g.years}N (~{formatVND(Math.round((g.target || 0) / ((g.years || 1) * 12)), isPrivacyMode)}/th)
-                              </span>
+                              </div>
+                              <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                                {g.years} Năm (~{formatVND(Math.round((g.target || 0) / ((g.years || 1) * 12)), isPrivacyMode)}/tháng)
+                              </div>
                             </div>
                           )}
                           {linkedAsset && (
-                            <div className="mt-1 flex items-center gap-1 text-[9px] text-blue-700 font-medium truncate">
+                            <div className="mt-1 flex items-center gap-1 text-[9.5px] text-blue-700 font-semibold truncate pt-0.5 border-t border-slate-200/60">
                               <LinkIcon className="w-2.5 h-2.5 shrink-0" />
                               <span className="truncate">Tab 1: {linkedAsset.name}</span>
                             </div>
                           )}
                         </div>
 
-                        <div className="text-right">
-                          <span className="text-[9px] text-slate-400 font-medium block leading-tight">Tiến độ tích lũy</span>
-                          {isDCA ? (
-                            <div className="mt-0.5">
-                              <span className="text-xs font-bold text-emerald-700 block leading-tight">
-                                Gom: {formatNumberString(g.totalBought || 0)} {g.unit}
-                              </span>
-                              <div className="flex items-center justify-end gap-1 mt-0.5 flex-wrap">
+                        {/* Cột Phải: Lịch hạn & Trạng thái rõ ràng */}
+                        <div className="bg-slate-50/70 p-2.5 rounded-lg border border-slate-100 flex flex-col justify-between space-y-1">
+                          <div>
+                            <span className="text-[9.5px] text-slate-400 font-bold block uppercase tracking-tight">Lịch hạn & Trạng thái</span>
+                            {isDCA ? (
+                              <div className="mt-1 space-y-1">
                                 {isBoughtThisPeriod ? (
-                                  <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                    ✓ Đã gom
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTogglePaidThisPeriod(g)}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition cursor-pointer"
+                                    title="Bấm để chuyển về Chưa nạp / Chờ nạp kỳ này"
+                                  >
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                                    <span>Đã nạp kỳ {currentPeriodStr}</span>
+                                    <X className="w-2.5 h-2.5 text-emerald-600 ml-0.5" />
+                                  </button>
                                 ) : backlog > 0 ? (
-                                  <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                                    Bù: {formatNumberString(dueThisPeriod)} {g.unit}
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                    ⚠️ Nợ dồn: {formatNumberString(backlog)} {g.unit} (Cần nạp: {formatNumberString(dueThisPeriod)} {g.unit})
                                   </span>
                                 ) : (
-                                  <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                    ⏳ Chờ gom
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                    ⏳ Chờ nạp kỳ {currentPeriodStr}
                                   </span>
                                 )}
-                                <span className="text-[9px] text-slate-400">
-                                  {!isBoughtThisPeriod && diffDays >= 0 && diffDays <= 3 ? (
-                                    <span className="text-rose-600 font-bold">{diffDays} ngày</span>
-                                  ) : (
-                                    <span>Hạn {nextDueDateStr}</span>
-                                  )}
+                              </div>
+                            ) : (
+                              <div className="mt-1">
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  Hạn: {targetPeriodStr}
                                 </span>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="mt-0.5">
-                              <div className="flex items-baseline justify-end gap-1">
-                                <span className="text-xs font-black text-slate-900">{milestoneProgress}%</span>
-                                <span className="text-[9.5px] text-slate-500">
-                                  ({formatVND(netWorth, isPrivacyMode)})
-                                </span>
-                              </div>
-                              <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden my-1">
-                                <div
-                                  className="bg-blue-600 h-full transition-all duration-500"
-                                  style={{ width: `${milestoneProgress}%` }}
-                                />
-                              </div>
-                              <span className="text-[9px] text-slate-500 block leading-tight">
-                                Hạn: {targetPeriodStr} (~{monthsLeft}T)
-                              </span>
-                            </div>
-                          )}
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            {isDCA ? (
+                              !isBoughtThisPeriod && diffDays >= 0 && diffDays <= 3 ? (
+                                <span className="text-rose-600 font-bold">⚠️ Hạn chót {nextDueDateStr} ({diffDays} ngày)</span>
+                              ) : (
+                                <span>Hạn chót: {nextDueDateStr} ({diffDays >= 0 ? `còn ${diffDays} ngày` : `quá ${Math.abs(diffDays)} ngày`})</span>
+                              )
+                            ) : (
+                              <span>Còn ~{monthsLeft} tháng</span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Row 3: Action Buttons */}
-                      {g.status !== 'completed' && (
-                        <div className="pt-1.5 border-t border-slate-200/70 grid grid-cols-3 gap-1.5">
-                          {isDCA ? (
+                      {/* Row 3: Action Buttons - Row format with harmonic colors & spacing */}
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1 flex-wrap">
+                        {/* Nhóm nút Xác nhận nạp & Nợ kỳ sau */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {g.status !== 'completed' && isDCA && (
                             <>
-                              <button
-                                onClick={() => handleMarkDCABought(g)}
-                                className="py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                <span>Nạp kỳ này</span>
-                              </button>
-                              <button
-                                onClick={() => handleCarryOverBacklog(g)}
-                                className="py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1"
-                              >
-                                <Clock className="w-3 h-3 shrink-0" />
-                                <span>Nợ kỳ sau</span>
-                              </button>
-                              <button
-                                onClick={() => handleCompleteGoal(g)}
-                                className="py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                <span>Đã đạt</span>
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={() => handleCompleteGoal(g)}
-                              className="col-span-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[10.5px] font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>Đánh dấu đã hoàn thành</span>
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* 2. DEDICATED DESKTOP VIEW (>= md) - FULL TABLE */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200">
-                  <th className="p-3 text-center w-10">STT</th>
-                  <th className="p-3 min-w-[130px]">Nhóm</th>
-                  <th className="p-3 min-w-[200px]">Mục Tiêu & Liên Kết</th>
-                  <th className="p-3 min-w-[140px]">Định Mức / Kỳ</th>
-                  <th className="p-3 text-right min-w-[180px]">Tiến Độ Tích Lũy</th>
-                  <th className="p-3 text-center min-w-[150px]">Lịch Hạn & Trạng Thái</th>
-                  <th className="p-3 text-center w-28">Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredGoals.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-400">
-                      Chưa có mục tiêu nào phù hợp với bộ lọc hiện tại.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredGoals.map((g, index) => {
-                    const isDCA = g.goalType === 'dca';
-                    const groupMeta = goalGroupLabels[g.group] || goalGroupLabels.dca;
-
-                    // Linked asset info from Tab 1
-                    const linkedAsset = g.linkedAssetId
-                      ? db.assets.find((a) => a.id === g.linkedAssetId)
-                      : db.assets.find((a) => a.name.toLowerCase() === g.name.toLowerCase());
-
-                    // DCA calculation
-                    const isBoughtThisPeriod = g.lastBoughtPeriod === currentPeriodStr;
-                    const backlog = g.backlogQty || 0;
-                    const dueThisPeriod = (g.targetQty || 0) + backlog;
-                    const freqMonths = g.freqMonths || 1;
-                    const freqLabel =
-                      freqMonths === 1
-                        ? 'Hàng tháng'
-                        : freqMonths === 3
-                        ? 'Hàng quý'
-                        : freqMonths === 6
-                        ? 'Nửa năm'
-                        : `${freqMonths}T/lần`;
-
-                    const { diffDays, nextDueDateStr } = calculateDCADaysRemaining(g.day || 10, freqMonths);
-
-                    // Milestone calculation
-                    const { targetPeriodStr, monthsLeft } = calculateMilestoneDueDate(
-                      g.createdAt || currentPeriodStr,
-                      g.years || 1
-                    );
-                    const milestoneTarget = g.target || 1;
-                    const milestoneProgress = Math.min(100, Math.round((netWorth / milestoneTarget) * 100));
-
-                    return (
-                      <tr key={g.id} className="hover:bg-slate-50/80 transition">
-                        <td className="p-3 text-center font-bold text-slate-400">{index + 1}</td>
-
-                        {/* Nhóm */}
-                        <td className="p-3">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${groupMeta.tagClass}`}
-                          >
-                            <i className={`fa-solid ${groupMeta.icon} mr-1`}></i>
-                            <span>{g.group === 'debt' ? '1. Trả Nợ' : g.group === 'dca' ? '2. Tích Sản' : g.group === 'runway' ? '3. Dự Phòng' : '4. Cột Mốc'}</span>
-                          </span>
-                          <div className="text-[10px] text-slate-400 mt-1 font-semibold">
-                            {isDCA ? 'Tích sản DCA' : 'Cột mốc vốn'}
-                          </div>
-                        </td>
-
-                        {/* Tên Mục Tiêu & Liên Kết */}
-                        <td className="p-3">
-                          <div className="font-bold text-slate-900 text-xs">{g.name}</div>
-                          {linkedAsset ? (
-                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                <LinkIcon className="w-2.5 h-2.5 mr-1" />
-                                {linkedAsset.type === 'saving' ? (
-                                  <span>Tab 1: Sổ {formatVND(linkedAsset.amount, isPrivacyMode)}</span>
-                                ) : linkedAsset.type === 'stock' ? (
-                                  <span>Tab 1: {formatNumberString(linkedAsset.quantity || 0)} CP</span>
-                                ) : linkedAsset.type === 'gold' ? (
-                                  <span>Tab 1: {formatNumberString(linkedAsset.quantity || 0)} chỉ</span>
-                                ) : (
-                                  <span>Tab 1: {formatVND(linkedAsset.amount, isPrivacyMode)}</span>
-                                )}
-                              </span>
-                            </div>
-                          ) : (
-                            g.linkedDebtId && (
-                              <div className="mt-1">
-                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                                  Link Nợ Tab 2
-                                </span>
-                              </div>
-                            )
-                          )}
-                          {g.note && <div className="text-[10px] text-slate-400 italic mt-0.5">"{g.note}"</div>}
-                        </td>
-
-                        {/* Định Mức */}
-                        <td className="p-3">
-                          {isDCA ? (
-                            <div>
-                              <div className="font-bold text-slate-900 text-xs">
-                                {formatNumberString(g.targetQty)} {g.unit}
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-medium">
-                                {freqLabel} • Ngày {g.day || 10}
-                              </div>
-                            </div>
-                          ) : (
-                            <div>
-                              <div className="font-bold text-blue-700 text-xs">
-                                {formatVND(g.target, isPrivacyMode)}
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-medium">
-                                {g.years} Năm (~
-                                {formatVND(Math.round((g.target || 0) / ((g.years || 1) * 12)), isPrivacyMode)}
-                                /tháng)
-                              </div>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Tiến Độ Tích Lũy */}
-                        <td className="p-3 text-right">
-                          {isDCA ? (
-                            <div className="space-y-1">
-                              <div className="text-[11px] font-bold text-emerald-700">
-                                Đã gom: {formatNumberString(g.totalBought || 0)} {g.unit}
-                              </div>
-                              {backlog > 0 ? (
-                                <div className="text-[10px] font-bold text-rose-600 animate-pulse">
-                                  ⚠️ Nợ mua bù: {formatNumberString(backlog)} {g.unit}
-                                </div>
-                              ) : (
-                                <div className="text-[10px] text-slate-400">Đầy đủ tiến độ</div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-end space-x-1 text-[11px]">
-                                <span className="font-bold text-slate-900">{milestoneProgress}%</span>
-                                <span className="text-slate-400">
-                                  ({formatVND(netWorth, isPrivacyMode)} / {formatVND(g.target, isPrivacyMode)})
-                                </span>
-                              </div>
-                              <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden ml-auto max-w-[120px]">
-                                <div
-                                  className="bg-blue-600 h-full transition-all duration-500"
-                                  style={{ width: `${milestoneProgress}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Lịch Hạn & Trạng Thái */}
-                        <td className="p-3 text-center">
-                          {isDCA ? (
-                            <div className="space-y-1">
-                              <div>
-                                {isBoughtThisPeriod ? (
-                                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                    ✓ Đã mua kỳ này
-                                  </span>
-                                ) : backlog > 0 ? (
-                                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                                    ⚠️ Cần mua bù ({formatNumberString(dueThisPeriod)} {g.unit})
-                                  </span>
-                                ) : (
-                                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                    ⏳ Chờ mua
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-medium">
-                                {!isBoughtThisPeriod && diffDays >= 0 && diffDays <= 3 ? (
-                                  <span className="text-rose-600 font-bold">⚠️ Tới hạn sau {diffDays} ngày</span>
-                                ) : (
-                                  <span>Hạn: {nextDueDateStr}</span>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="space-y-1">
-                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                Hạn: {targetPeriodStr}
-                              </span>
-                              <div className="text-[10px] text-slate-500 font-medium">
-                                Còn ~{monthsLeft} tháng
-                              </div>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Thao Tác */}
-                        <td className="p-3 text-center space-x-1 whitespace-nowrap">
-                          {g.status === 'completed' ? (
-                            <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              <CheckCircle2 className="w-3 h-3 mr-1" />
-                              <span>Đã đạt</span>
-                            </span>
-                          ) : (
-                            <>
-                              {isDCA && (
+                              {isBoughtThisPeriod ? (
                                 <>
                                   <button
-                                    onClick={() => handleMarkDCABought(g)}
-                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center space-x-1"
+                                    onClick={() => handleTogglePaidThisPeriod(g)}
+                                    className="px-2 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 border border-slate-300 active:scale-95 rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 shrink-0"
+                                    title="Chuyển về trạng thái Chờ nạp kỳ này"
+                                  >
+                                    <X className="w-3 h-3 text-slate-500" />
+                                    <span>Hủy nạp</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenDepositModal(g)}
+                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 shrink-0"
+                                    title="Nạp thêm số lượng tích lũy cho kỳ này"
+                                  >
+                                    <PlusCircle className="w-3 h-3" />
+                                    <span>Nạp thêm</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleOpenDepositModal(g)}
+                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 shrink-0"
                                     title="Xác nhận đã mua/nạp kỳ này (Tự động cộng Tab 1)"
                                   >
                                     <CheckCircle2 className="w-3 h-3" />
                                     <span>Nạp kỳ này</span>
                                   </button>
                                   <button
-                                    onClick={() => handleCarryOverBacklog(g)}
-                                    className="px-2 py-1 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center space-x-1"
-                                    title="Chưa gom được kỳ này, chuyển nợ sang tháng sau mua bù (VD: nợ 1 chỉ -> tháng sau mua 2 chỉ)"
+                                    onClick={() => handleOpenBacklogModal(g)}
+                                    className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 active:scale-95 rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 shrink-0"
+                                    title="Chưa nạp kịp, chuyển nợ định mức sang kỳ sau mua bù"
                                   >
-                                    <Clock className="w-3 h-3" />
+                                    <Clock className="w-3 h-3 text-amber-700" />
                                     <span>Nợ kỳ sau</span>
                                   </button>
                                 </>
                               )}
-                              <button
-                                onClick={() => handleCompleteGoal(g)}
-                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center space-x-1"
-                                title="Đánh dấu hoàn thành mục tiêu (Tự động cập nhật Tab 1 / Tab 2)"
-                              >
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>Hoàn thành</span>
-                              </button>
                             </>
                           )}
+                          {g.status !== 'completed' && !isDCA && (
+                            <button
+                              onClick={() => handleCompleteGoal(g)}
+                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 shrink-0"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Hoàn thành</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Standard Horizontal Action Group [📜 Lịch sử] [✏️ Sửa] [🗑️ Xóa] */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => handleOpenHistory(g)}
+                            className="p-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition active:scale-95 cursor-pointer flex items-center gap-1 text-[10px] font-bold border border-blue-200"
+                            title="Lịch sử Mua/Gom"
+                          >
+                            <History className="w-3.5 h-3.5 text-blue-600" />
+                            <span className="hidden xs:inline">Lịch sử</span>
+                          </button>
                           <button
                             onClick={() => handleEditGoal(g)}
-                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                            title="Sửa mục tiêu (Tự động cuộn lên form)"
+                            className="p-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition active:scale-95 cursor-pointer flex items-center gap-1 text-[10px] font-bold border border-amber-200"
+                            title="Sửa mục tiêu"
                           >
-                            <Pen className="w-3.5 h-3.5" />
+                            <Pen className="w-3.5 h-3.5 text-amber-600" />
+                            <span className="hidden xs:inline">Sửa</span>
                           </button>
                           <button
                             onClick={() => {
@@ -2635,19 +2682,319 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
                                 onRemoveGoal(g.id);
                               }
                             }}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            className="p-1.5 text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition active:scale-95 cursor-pointer border border-rose-200"
                             title="Xóa mục tiêu"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                           </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* 2. DEDICATED DESKTOP VIEW (>= md) - FULL TABLE WITHOUT PROGRESS COLUMN */}
+            <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                    <th className="p-3 text-center w-12">STT</th>
+                    <th className="p-3 min-w-[130px]">Nhóm</th>
+                    <th className="p-3 min-w-[190px]">Mục Tiêu & Liên Kết</th>
+                    <th className="p-3 min-w-[180px]">Định Mức & Đơn Giá</th>
+                    <th className="p-3 text-center min-w-[180px]">Lịch Hạn & Trạng Thái</th>
+                    <th className="p-3 text-center min-w-[240px]">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700 bg-white">
+                  {filteredGoals.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        Chưa có mục tiêu nào phù hợp với bộ lọc hiện tại.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredGoals.map((g, index) => {
+                      const isDCA = g.goalType === 'dca';
+                      const groupMeta = goalGroupLabels[g.group] || goalGroupLabels.dca;
+
+                      // Linked asset info from Tab 1
+                      const linkedAsset = g.linkedAssetId
+                        ? db.assets.find((a) => a.id === g.linkedAssetId)
+                        : db.assets.find((a) => a.name.toLowerCase() === g.name.toLowerCase());
+
+                      // DCA calculation
+                      const isBoughtThisPeriod = g.lastBoughtPeriod === currentPeriodStr;
+                      const backlog = g.backlogQty || 0;
+                      const dueThisPeriod = (g.targetQty || 0) + backlog;
+                      const freqMonths = g.freqMonths || 1;
+                      const freqLabel =
+                        freqMonths === 1
+                          ? 'Hàng tháng'
+                          : freqMonths === 3
+                          ? 'Hàng quý'
+                          : freqMonths === 6
+                          ? 'Nửa năm'
+                          : `${freqMonths}T/lần`;
+
+                      const { diffDays, nextDueDateStr } = calculateDCADaysRemaining(g.day || 10, freqMonths);
+
+                      // Milestone calculation
+                      const { targetPeriodStr, monthsLeft } = calculateMilestoneDueDate(
+                        g.createdAt || currentPeriodStr,
+                        g.years || 1
+                      );
+
+                      // Unit price and estimated period amount
+                      const isGold = g.assetType === 'gold' || g.unit === 'chỉ' || g.unit === 'lượng';
+                      const isStock = g.assetType === 'stock' || g.unit === 'CP';
+                      const unitCostPrice = g.unitPrice || (g.costPrice && g.totalBought ? Math.round(g.costPrice / g.totalBought) : (isGold ? 8200000 : isStock ? 30000 : 0));
+                      const unitMktPrice = g.currentPrice || (isGold ? 8650000 : isStock ? 32000 : 0);
+                      const estPeriodCost = isDCA
+                        ? isGold || isStock
+                          ? (g.targetQty || 0) * (unitMktPrice || unitCostPrice)
+                          : (g.targetAmountPerPeriod || g.targetQty || 0)
+                        : 0;
+
+                      return (
+                        <tr key={g.id} className="hover:bg-slate-50/90 transition">
+                          {/* STT */}
+                          <td className="p-3 text-center font-bold text-slate-400">{index + 1}</td>
+
+                          {/* Nhóm */}
+                          <td className="p-3">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${groupMeta.tagClass}`}
+                            >
+                              <i className={`fa-solid ${groupMeta.icon} mr-1.5`}></i>
+                              <span>{g.group === 'debt' ? '1. Trả Nợ' : g.group === 'dca' ? '2. Tích Sản' : g.group === 'runway' ? '3. Dự Phòng' : '4. Cột Mốc'}</span>
+                            </span>
+                            <div className="text-[10px] text-slate-400 mt-1 font-semibold">
+                              {isDCA ? 'Tích sản DCA' : 'Cột mốc lớn'}
+                            </div>
+                          </td>
+
+                          {/* Tên Mục Tiêu & Liên Kết */}
+                          <td className="p-3">
+                            <div className="font-bold text-slate-900 text-xs">{g.name}</div>
+                            {linkedAsset ? (
+                              <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  <LinkIcon className="w-2.5 h-2.5 mr-1" />
+                                  {linkedAsset.type === 'saving' ? (
+                                    <span>Tab 1: Sổ {formatVND(linkedAsset.amount, isPrivacyMode)}</span>
+                                  ) : linkedAsset.type === 'stock' ? (
+                                    <span>Tab 1: {formatNumberString(linkedAsset.quantity || 0)} CP</span>
+                                  ) : linkedAsset.type === 'gold' ? (
+                                    <span>Tab 1: {formatNumberString(linkedAsset.quantity || 0)} chỉ</span>
+                                  ) : (
+                                    <span>Tab 1: {formatVND(linkedAsset.amount, isPrivacyMode)}</span>
+                                  )}
+                                </span>
+                              </div>
+                            ) : (
+                              g.linkedDebtId && (
+                                <div className="mt-1">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                    Link Nợ Tab 2
+                                  </span>
+                                </div>
+                              )
+                            )}
+                            {g.note && <div className="text-[10px] text-slate-400 italic mt-0.5">"{g.note}"</div>}
+                          </td>
+
+                          {/* Định Mức & Đơn Giá */}
+                          <td className="p-3">
+                            {isDCA ? (
+                              <div className="space-y-1">
+                                <div className="font-black text-slate-900 text-xs">
+                                  {formatNumberString(g.targetQty)} {g.unit}{' '}
+                                  <span className="text-[10px] text-slate-500 font-normal">
+                                    ({freqLabel} • Ngày {g.day || 10})
+                                  </span>
+                                </div>
+                                {(isGold || isStock) && (
+                                  <div className="flex flex-wrap items-center gap-1 text-[9.5px]">
+                                    {unitCostPrice > 0 && (
+                                      <span className="inline-block bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-semibold border border-slate-200">
+                                        Vốn TB: {formatVND(unitCostPrice, isPrivacyMode)}
+                                      </span>
+                                    )}
+                                    {unitMktPrice > 0 && (
+                                      <span className="inline-block bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded font-semibold border border-blue-200">
+                                        Giá TT: {formatVND(unitMktPrice, isPrivacyMode)}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {estPeriodCost > 0 && (
+                                  <div className="text-[10px] text-emerald-700 font-bold">
+                                    ≈ {formatVND(estPeriodCost, isPrivacyMode)} / kỳ
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="font-bold text-blue-700 text-xs">
+                                  {formatVND(g.target, isPrivacyMode)}
+                                </div>
+                                <div className="text-[10.5px] text-slate-500 font-medium mt-0.5">
+                                  {g.years} Năm (~{formatVND(Math.round((g.target || 0) / ((g.years || 1) * 12)), isPrivacyMode)}/tháng)
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Lịch Hạn & Trạng Thái */}
+                          <td className="p-3 text-center">
+                            {isDCA ? (
+                              <div className="space-y-1">
+                                <div>
+                                  {isBoughtThisPeriod ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTogglePaidThisPeriod(g)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition cursor-pointer"
+                                      title="Bấm để chuyển về Chưa nạp / Chờ nạp kỳ này"
+                                    >
+                                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                                      <span>Đã nạp kỳ {currentPeriodStr}</span>
+                                      <X className="w-2.5 h-2.5 text-emerald-600 hover:text-rose-600 ml-0.5" />
+                                    </button>
+                                  ) : backlog > 0 ? (
+                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                                      ⚠️ Nợ dồn: {formatNumberString(backlog)} {g.unit} (Cần: {formatNumberString(dueThisPeriod)})
+                                    </span>
+                                  ) : (
+                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                      ⏳ Chờ nạp kỳ {currentPeriodStr}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-medium">
+                                  {!isBoughtThisPeriod && diffDays >= 0 && diffDays <= 3 ? (
+                                    <span className="text-rose-600 font-bold">⚠️ Hạn {nextDueDateStr} ({diffDays} ngày)</span>
+                                  ) : (
+                                    <span>Hạn: {nextDueDateStr} ({diffDays >= 0 ? `còn ${diffDays} ngày` : `quá ${Math.abs(diffDays)} ngày`})</span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  Hạn: {targetPeriodStr}
+                                </span>
+                                <div className="text-[10px] text-slate-500 font-medium">
+                                  Còn ~{monthsLeft} tháng
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Thao Tác (Hàng ngang với khoảng cách và màu sắc hài hòa) */}
+                          <td className="p-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                              {g.status === 'completed' ? (
+                                <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  <span>Đã đạt</span>
+                                </span>
+                              ) : (
+                                <>
+                                  {isDCA && (
+                                    <>
+                                      {isBoughtThisPeriod ? (
+                                        <>
+                                          <button
+                                            onClick={() => handleTogglePaidThisPeriod(g)}
+                                            className="px-2 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 border border-slate-300 active:scale-95 rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                                            title="Chuyển về trạng thái Chờ nạp kỳ này"
+                                          >
+                                            <X className="w-3 h-3 text-slate-500" />
+                                            <span>Hủy nạp</span>
+                                          </button>
+                                          <button
+                                            onClick={() => handleOpenDepositModal(g)}
+                                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                                            title="Nạp thêm số lượng tích lũy cho kỳ này"
+                                          >
+                                            <PlusCircle className="w-3 h-3" />
+                                            <span>Nạp thêm</span>
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => handleOpenDepositModal(g)}
+                                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                                            title="Xác nhận đã mua/nạp kỳ này (Tự động cộng Tab 1)"
+                                          >
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            <span>Nạp kỳ này</span>
+                                          </button>
+                                          <button
+                                            onClick={() => handleOpenBacklogModal(g)}
+                                            className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 active:scale-95 rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                                            title="Chưa nạp kịp, chuyển nợ định mức sang kỳ sau mua bù"
+                                          >
+                                            <Clock className="w-3 h-3 text-amber-700" />
+                                            <span>Nợ kỳ sau</span>
+                                          </button>
+                                        </>
+                                      )}
+                                    </>
+                                  )}
+                                  {!isDCA && (
+                                    <button
+                                      onClick={() => handleCompleteGoal(g)}
+                                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[10px] font-bold transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                                      title="Đánh dấu hoàn thành mục tiêu"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Hoàn thành</span>
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleOpenHistory(g)}
+                                className="px-2 py-1 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition cursor-pointer text-[10px] font-bold inline-flex items-center gap-1 border border-blue-200"
+                                title="Lịch sử Mua/Gom & Thống kê"
+                              >
+                                <History className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Lịch sử</span>
+                              </button>
+                              <button
+                                onClick={() => handleEditGoal(g)}
+                                className="px-2 py-1 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition cursor-pointer text-[10px] font-bold inline-flex items-center gap-1 border border-amber-200"
+                                title="Sửa mục tiêu"
+                              >
+                                <Pen className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Sửa</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Bạn có chắc muốn xóa mục tiêu "${g.name}"?`)) {
+                                    onRemoveGoal(g.id);
+                                  }
+                                }}
+                                className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer border border-rose-200"
+                                title="Xóa mục tiêu"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
         </div>
       )}
       </div>
@@ -3039,6 +3386,291 @@ export const TabGoals: React.FC<TabGoalsProps> = ({
           <canvas ref={chartProgressRef}></canvas>
         </div>
       </div>
+
+      {/* Asset / Goal Transaction History Modal */}
+      {showHistoryModal && (selectedHistoryGoal || selectedHistoryAsset) && (
+        <AssetHistoryModal
+          isOpen={showHistoryModal}
+          goal={selectedHistoryGoal}
+          asset={selectedHistoryAsset}
+          db={db}
+          isPrivacyMode={isPrivacyMode}
+          onClose={() => {
+            setShowHistoryModal(false);
+            setSelectedHistoryGoal(null);
+            setSelectedHistoryAsset(null);
+          }}
+          onSaveTransactions={(updatedTxs, updatedAsset, updatedGoal) => {
+            if (onSaveTransactions) {
+              onSaveTransactions(updatedTxs, updatedAsset, updatedGoal);
+            } else {
+              if (updatedGoal) onUpdateGoal(updatedGoal);
+              if (updatedAsset) onUpdateAssetDirectly(updatedAsset);
+            }
+          }}
+        />
+      )}
+
+      {/* MODAL NẠP KỲ NÀY (DCA DEPOSIT MODAL) */}
+      {dcaDepositGoal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                    Xác Nhận Nạp Kỳ {currentPeriodStr}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Mục tiêu: <span className="font-bold text-slate-800">{dcaDepositGoal.name}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDcaDepositGoal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Thông tin định mức kỳ này */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Định mức kỳ này:</span>
+                <span className="font-bold text-slate-800">
+                  {formatNumberString(dcaDepositGoal.targetQty || 0)} {dcaDepositGoal.unit}
+                </span>
+              </div>
+              {(dcaDepositGoal.backlogQty || 0) > 0 && (
+                <div className="flex justify-between text-rose-600">
+                  <span>Nợ kỳ trước dồn sang:</span>
+                  <span className="font-bold">
+                    +{formatNumberString(dcaDepositGoal.backlogQty || 0)} {dcaDepositGoal.unit}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between pt-1 border-t border-slate-200 text-emerald-800 font-bold">
+                <span>Tổng cần gom kỳ này:</span>
+                <span>
+                  {formatNumberString((dcaDepositGoal.targetQty || 0) + (dcaDepositGoal.backlogQty || 0))} {dcaDepositGoal.unit}
+                </span>
+              </div>
+            </div>
+
+            {/* Form nhập liệu */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Số lượng / Số tiền nạp thực tế ({dcaDepositGoal.unit}):
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    value={depositAmountStr}
+                    onChange={(e) => setDepositAmountStr(e.target.value)}
+                    placeholder="Nhập số lượng..."
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">
+                    {dcaDepositGoal.unit}
+                  </span>
+                </div>
+                {/* Shortcut buttons */}
+                <div className="flex gap-1.5 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDepositAmountStr(
+                        formatNumberString(
+                          (dcaDepositGoal.targetQty || 0) + (dcaDepositGoal.backlogQty || 0) || 1
+                        )
+                      )
+                    }
+                    className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-bold border border-emerald-200 cursor-pointer"
+                  >
+                    Đúng định mức
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDepositAmountStr(
+                        formatNumberString(
+                          ((dcaDepositGoal.targetQty || 0) + (dcaDepositGoal.backlogQty || 0)) * 2 || 2
+                        )
+                      )
+                    }
+                    className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold border border-slate-300 cursor-pointer"
+                  >
+                    Gấp đôi (x2)
+                  </button>
+                </div>
+              </div>
+
+              {/* Đơn giá thực tế (nếu là Vàng / Cổ phiếu) */}
+              {(dcaDepositGoal.assetType === 'gold' ||
+                dcaDepositGoal.assetType === 'stock' ||
+                dcaDepositGoal.unit === 'chỉ' ||
+                dcaDepositGoal.unit === 'CP' ||
+                dcaDepositGoal.unit === 'lượng') && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Đơn giá mua thực tế đợt này (VNĐ/{dcaDepositGoal.unit}):
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={depositPriceStr}
+                      onChange={(e) => setDepositPriceStr(e.target.value)}
+                      placeholder="Nhập đơn giá mua..."
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">
+                      VNĐ/{dcaDepositGoal.unit}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Tùy chọn tự động đồng bộ sang Tab 1 */}
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 border border-blue-200 cursor-pointer hover:bg-blue-100/70 transition">
+                <input
+                  type="checkbox"
+                  checked={depositAutoSyncAsset}
+                  onChange={(e) => setDepositAutoSyncAsset(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-400"
+                />
+                <span className="text-xs font-semibold text-blue-900">
+                  Tự động cộng dồn số lượng & cập nhật giá vốn vào <b>Tháp Tài Sản (Tab 1)</b>
+                </span>
+              </label>
+            </div>
+
+            {/* Nút hành động */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDcaDepositGoal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeposit}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-md cursor-pointer transition flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Xác Nhận Đã Nạp</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NỢ KỲ SAU (CARRY OVER BACKLOG MODAL) */}
+      {dcaBacklogGoal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Clock className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                    Chuyển Nợ Định Mức Sang Kỳ Sau
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Mục tiêu: <span className="font-bold text-slate-800">{dcaBacklogGoal.name}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDcaBacklogGoal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1">
+              <p>
+                Kỳ này chưa kịp nạp? Hệ thống sẽ ghi nhận số lượng này vào <b>Nợ dồn</b> để nhắc bạn mua bù vào kỳ tới.
+              </p>
+              <div className="flex justify-between pt-1 border-t border-amber-200 font-bold">
+                <span>Nợ dồn hiện tại:</span>
+                <span>{formatNumberString(dcaBacklogGoal.backlogQty || 0)} {dcaBacklogGoal.unit}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Số lượng chuyển nợ ({dcaBacklogGoal.unit}):
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  value={backlogInputStr}
+                  onChange={(e) => setBacklogInputStr(e.target.value)}
+                  placeholder="Nhập số lượng chuyển nợ..."
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none"
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">
+                  {dcaBacklogGoal.unit}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDcaBacklogGoal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBacklog}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 active:scale-95 text-white shadow-md cursor-pointer transition flex items-center gap-1.5"
+              >
+                <Clock className="w-4 h-4" />
+                <span>Xác Nhận Chuyển Nợ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING TOAST NOTIFICATION */}
+      {toastBanner && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-slate-900 text-white p-3.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center justify-between gap-2 animate-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-center gap-2.5 text-xs font-semibold">
+            {toastBanner.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />}
+            {toastBanner.type === 'warning' && <Clock className="w-5 h-5 text-amber-400 shrink-0" />}
+            {toastBanner.type === 'info' && <TrendingUp className="w-5 h-5 text-blue-400 shrink-0" />}
+            <span>{toastBanner.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastBanner(null)}
+            className="text-slate-400 hover:text-white p-1 cursor-pointer shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

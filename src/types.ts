@@ -20,6 +20,9 @@ export interface Asset {
   name: string;
   amount: number; // Giá trị hiện tại (VNĐ)
   costPrice?: number; // Tổng giá vốn ban đầu (VNĐ)
+  unitPrice?: number; // Đơn giá vốn trung bình (VNĐ/đơn vị)
+  currentPrice?: number; // Đơn giá thị trường hiện tại (VNĐ/đơn vị)
+  unit?: string; // Đơn vị: CP, chỉ, lượng, VNĐ...
   rate?: number; // Lãi suất (%/năm)
   startDate?: string;
   termMonths?: number;
@@ -29,6 +32,21 @@ export interface Asset {
   divCash?: number; // Cổ tức tiền mặt (VNĐ/CP/năm)
   updatedAt?: string;
   note?: string;
+}
+
+export interface AssetTransaction {
+  id: string; // ID duy nhất của đợt giao dịch
+  assetId?: number; // ID tài sản liên kết ở Tab 1
+  goalId?: number; // ID mục tiêu liên kết ở Tab 3
+  assetName?: string; // Tên tài sản/mục tiêu tại thời điểm giao dịch
+  date: string; // YYYY-MM-DD
+  type: 'buy' | 'deposit' | 'sell' | 'withdraw'; // Mua gom, nạp thêm, bán, rút
+  quantity: number; // Số lượng mua/nạp (chỉ, CP, VNĐ...)
+  unit?: string; // CP, chỉ, lượng, VNĐ...
+  pricePerUnit: number; // Đơn giá mua đợt này (VNĐ/đơn vị)
+  totalAmount: number; // Thành tiền = quantity * pricePerUnit (hoặc số tiền nạp)
+  note?: string; // Ghi chú (tiệm vàng, sàn GD, số GD...)
+  createdAt?: string; // ISO string
 }
 
 export type DebtCategory = 'type1' | 'type2' | 'type_free' | 'type3' | 'type4';
@@ -75,6 +93,9 @@ export interface Goal {
   day?: number; // Ngày chốt mua / nạp trong tháng
   backlogQty?: number; // Nợ chỉ tiêu chưa mua bù
   totalBought?: number; // Tổng số lượng hoặc tiền đã tích lũy qua các kỳ
+  unitPrice?: number; // Đơn giá vốn trung bình (đ/chỉ hoặc đ/CP)
+  currentPrice?: number; // Đơn giá thị trường hiện tại (đ/chỉ hoặc đ/CP)
+  costPrice?: number; // Tổng giá vốn ban đầu (VNĐ)
   lastBoughtPeriod?: string; // Kỳ đã mua gần nhất (VD: 2026-09)
   target?: number; // Tổng số tiền mục tiêu (cho milestone)
   years?: number; // Thời hạn hoàn thành (năm)
@@ -129,6 +150,7 @@ export interface DatabaseState {
   assets: Asset[];
   debts: Debt[];
   goals: Goal[];
+  transactions?: AssetTransaction[];
   history: HistoryPoint[];
   salaryIncome: number;
   otherIncome: number;

@@ -16,6 +16,7 @@ import {
   RefreshCw,
   PlusCircle,
   Edit3,
+  History,
 } from 'lucide-react';
 import {
   ParsedFullDatabase,
@@ -25,7 +26,7 @@ import {
   ParsedDebtItem,
   ParsedGoalItem,
 } from '../utils/excelEngine';
-import { Asset, Debt, Goal } from '../types';
+import { Asset, Debt, Goal, AssetTransaction } from '../types';
 
 interface SmartExcelModalProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ interface SmartExcelModalProps {
       assets: (Asset | Omit<Asset, 'id'>)[];
       debts: (Debt | Omit<Debt, 'id'>)[];
       goals: (Goal | Omit<Goal, 'id'>)[];
+      transactions?: (AssetTransaction | Omit<AssetTransaction, 'id'>)[];
       salaryIncome?: number;
       otherIncome?: number;
     },
@@ -56,7 +58,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState('');
   const [parsedData, setParsedData] = useState<ParsedFullDatabase | null>(null);
-  const [previewTab, setPreviewTab] = useState<'assets' | 'debts' | 'goals'>('assets');
+  const [previewTab, setPreviewTab] = useState<'assets' | 'debts' | 'goals' | 'transactions'>('assets');
   const [importMode, setImportMode] = useState<'sync' | 'replace' | 'append'>('sync');
   const [errorMsg, setErrorMsg] = useState('');
   const [successNotice, setSuccessNotice] = useState('');
@@ -85,7 +87,8 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
 
     try {
       const data = await parseExcelFile(file);
-      const totalCount = data.assets.length + data.debts.length + data.goals.length;
+      const txCount = data.transactions?.length || 0;
+      const totalCount = data.assets.length + data.debts.length + data.goals.length + txCount;
 
       if (totalCount === 0 && (!data.salaryIncome && !data.otherIncome)) {
         setErrorMsg('Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng tải File Mẫu Chuẩn để kiểm tra cấu trúc!');
@@ -95,6 +98,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
         if (data.assets.length > 0) setPreviewTab('assets');
         else if (data.debts.length > 0) setPreviewTab('debts');
         else if (data.goals.length > 0) setPreviewTab('goals');
+        else if (txCount > 0) setPreviewTab('transactions');
 
         const withIdCount =
           data.assets.filter((a) => !!a.id).length +
@@ -102,7 +106,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
           data.goals.filter((g) => !!g.id).length;
 
         setSuccessNotice(
-          `Đã đọc ${data.assets.length} tài sản, ${data.debts.length} khoản nợ, ${data.goals.length} mục tiêu${
+          `Đã đọc ${data.assets.length} tài sản, ${data.debts.length} khoản nợ, ${data.goals.length} mục tiêu, ${txCount} giao dịch lịch sử${
             withIdCount > 0 ? ` (trong đó có ${withIdCount} mục chứa Mã ID đồng bộ)` : ''
           }.`
         );
@@ -148,6 +152,12 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
     if (!parsedData) return;
     const nextGoals = parsedData.goals.filter((_, i) => i !== index);
     setParsedData({ ...parsedData, goals: nextGoals });
+  };
+
+  const handleRemoveTxRow = (index: number) => {
+    if (!parsedData || !parsedData.transactions) return;
+    const nextTxs = parsedData.transactions.filter((_, i) => i !== index);
+    setParsedData({ ...parsedData, transactions: nextTxs });
   };
 
   const handleConfirmSave = () => {
@@ -215,6 +225,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
         assets: assetsToImport,
         debts: debtsToImport,
         goals: goalsToImport,
+        transactions: parsedData.transactions,
         salaryIncome: parsedData.salaryIncome,
         otherIncome: parsedData.otherIncome,
       },
@@ -226,6 +237,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
   // Stats calculation
   const totalAssetAmount = parsedData?.assets.reduce((sum, item) => sum + item.amount, 0) || 0;
   const totalDebtAmount = parsedData?.debts.reduce((sum, item) => sum + item.amount, 0) || 0;
+  const txList = parsedData?.transactions || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
@@ -244,7 +256,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
                 Cập Nhật & Nhập Dữ Liệu Từ Excel
               </h2>
               <p className="text-[11px] sm:text-xs text-slate-500 font-medium truncate">
-                Hỗ trợ sửa dòng cũ theo Mã ID, thêm mới, xóa và tự động tính toán
+                Hỗ trợ sửa dòng cũ theo Mã ID, thêm mới, lịch sử giao dịch và tự động tính toán
               </p>
             </div>
           </div>
@@ -254,10 +266,10 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
               type="button"
               onClick={downloadStandardExcelTemplate}
               className="hidden sm:inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition cursor-pointer shadow-xs"
-              title="Tải tệp mẫu Excel chuẩn 3 sheet đầy đủ thông tin"
+              title="Tải tệp mẫu Excel chuẩn 4 sheet đầy đủ thông tin"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Tải File Mẫu (3 Sheet)</span>
+              <span>Tải File Mẫu (4 Sheet)</span>
             </button>
 
             <button
@@ -276,7 +288,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
           <div className="sm:hidden flex items-center justify-between gap-2 p-2.5 bg-amber-50/90 border border-amber-200/80 rounded-xl text-xs">
             <div className="flex items-center space-x-2 text-amber-900 min-w-0">
               <Download className="w-4 h-4 text-amber-700 shrink-0" />
-              <span className="font-bold text-[11px] truncate">Tải file mẫu Excel chuẩn (3 Sheet)</span>
+              <span className="font-bold text-[11px] truncate">Tải file mẫu Excel chuẩn (4 Sheet)</span>
             </div>
             <button
               type="button"
@@ -323,7 +335,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
                   Kéo thả file Excel vào đây hoặc <span className="text-emerald-600 underline font-extrabold">nhấp để chọn</span>
                 </p>
                 <p className="text-[11px] sm:text-xs text-slate-500 mt-1 max-w-md leading-relaxed">
-                  Tự động đối chiếu Mã ID để sửa dòng cũ, thêm mới dòng không có ID, tự động chuẩn hóa ngày tháng.
+                  Tự động đối chiếu Mã ID để sửa dòng cũ, thêm mới dòng không có ID, tự động chuẩn hóa ngày tháng và khối lượng thập phân.
                 </p>
               </>
             ) : (
@@ -378,7 +390,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
           {parsedData && (
             <div className="space-y-3 pt-2 border-t border-slate-200">
               {/* Top Overview Tabs */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div
                   onClick={() => setPreviewTab('assets')}
                   className={`p-2.5 rounded-xl border cursor-pointer transition ${
@@ -427,6 +439,23 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
                   </div>
                   <div className="text-xs font-semibold text-slate-600 truncate">
                     DCA & Cột mốc
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => setPreviewTab('transactions')}
+                  className={`p-2.5 rounded-xl border cursor-pointer transition ${
+                    previewTab === 'transactions'
+                      ? 'bg-purple-50/80 border-purple-400 ring-2 ring-purple-400/20'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center space-x-1.5 text-purple-700 font-bold text-xs mb-1">
+                    <History className="w-3.5 h-3.5" />
+                    <span>Giao Dịch ({txList.length})</span>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-600 truncate">
+                    Lịch sử tích sản
                   </div>
                 </div>
               </div>
@@ -488,7 +517,7 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
                                   {item.rate}%/năm
                                 </span>
                               )}
-                              {item.quantity && item.quantity > 1 && (
+                              {item.quantity && item.quantity > 0 && (
                                 <span>SL: <strong>{item.quantity.toLocaleString('vi-VN')}</strong></span>
                               )}
                               {item.startDate && (
@@ -662,6 +691,78 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleRemoveGoalRow(idx)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                              title="Xóa dòng này khỏi danh sách nạp"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4 PREVIEW: LỊCH SỬ GIAO DỊCH */}
+              {previewTab === 'transactions' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-800">
+                      Lịch sử giao dịch tích sản ({txList.length} giao dịch):
+                    </span>
+                  </div>
+
+                  <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-xl bg-white divide-y divide-slate-100 text-xs">
+                    {txList.length === 0 ? (
+                      <div className="p-4 text-center text-slate-400 italic">Không có giao dịch lịch sử nào trong file</div>
+                    ) : (
+                      txList.map((item, idx) => (
+                        <div key={idx} className="p-2 hover:bg-slate-50 flex items-center justify-between gap-2.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center space-x-1.5 flex-wrap">
+                              <span className="text-[10px] font-bold text-slate-400 w-5">#{idx + 1}</span>
+                              <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-900 shrink-0">
+                                {item.id || `GD-${idx + 1}`}
+                              </span>
+                              {item.assetId && (
+                                <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 shrink-0">
+                                  TS-{item.assetId}
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.2 rounded shrink-0 ${
+                                  item.type === 'buy'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : item.type === 'deposit'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {item.type === 'buy' ? 'Mua gom' : item.type === 'deposit' ? 'Nạp thêm' : 'Bán/Rút'}
+                              </span>
+                              <span className="font-bold text-slate-900 truncate">{item.assetName || 'Tài sản'}</span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 mt-1 pl-6">
+                              {item.date && <span>Ngày: {item.date}</span>}
+                              {item.quantity && (
+                                <span>SL: <strong>{item.quantity.toLocaleString('vi-VN')} {item.unit || ''}</strong></span>
+                              )}
+                              {item.pricePerUnit && (
+                                <span>Đơn giá: {item.pricePerUnit.toLocaleString('vi-VN')} đ</span>
+                              )}
+                              {item.totalAmount > 0 && (
+                                <span>Thành tiền: <strong className="text-purple-700">{item.totalAmount.toLocaleString('vi-VN')} đ</strong></span>
+                              )}
+                              {item.note && <span className="text-slate-400 italic">({item.note})</span>}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTxRow(idx)}
                               className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
                               title="Xóa dòng này khỏi danh sách nạp"
                             >

@@ -1,16 +1,96 @@
 import { DatabaseState, HistoryPoint } from '../types';
 
-export function parseFormattedNumber(val: any): number {
+/**
+ * Parse số thập phân linh hoạt, hỗ trợ cả định dạng Việt Nam (phẩy/chấm) và Quốc tế
+ * Ví dụ: "1,5", "1.5", "0.5", "1.000.000", "1,234.5", "8.650.000"
+ */
+export function parseFormattedDecimal(val: any): number {
   if (val === undefined || val === null) return 0;
-  const str = val.toString().trim();
-  const clean = str.replace(/[^0-9]/g, '');
-  return clean ? Number(clean) : 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  let str = val.toString().trim();
+  if (!str) return 0;
+
+  // Chuỗi chứa cả . và , (VD: 1.234,56 hoặc 1,234.56)
+  if (str.includes('.') && str.includes(',')) {
+    const lastDot = str.lastIndexOf('.');
+    const lastComma = str.lastIndexOf(',');
+    if (lastComma > lastDot) {
+      // Kiểu VN: 1.234,56
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Kiểu US: 1,234.56
+      str = str.replace(/,/g, '');
+    }
+    const res = parseFloat(str);
+    return isNaN(res) ? 0 : res;
+  }
+
+  // Chuỗi chỉ chứa dấu phẩy (VD: "1,5" hoặc "1,000,000")
+  if (str.includes(',')) {
+    const parts = str.split(',');
+    // Nếu chỉ có 1 dấu phẩy và phần sau <= 4 chữ số -> dấu thập phân (1,5 hoặc 1,25)
+    if (parts.length === 2 && parts[1].length <= 4) {
+      str = str.replace(',', '.');
+    } else {
+      str = str.replace(/,/g, '');
+    }
+    const res = parseFloat(str);
+    return isNaN(res) ? 0 : res;
+  }
+
+  // Chuỗi chỉ chứa dấu chấm (VD: "1.5" hoặc "1.000.000")
+  if (str.includes('.')) {
+    const parts = str.split('.');
+    // Nếu chỉ có 1 dấu chấm và phần nguyên <= 3 chữ số và phần sau <= 4 chữ số (như 1.5, 0.5, 12.5) -> số thập phân
+    if (parts.length === 2 && parts[1].length <= 4 && parts[0].length <= 3) {
+      const res = parseFloat(str);
+      return isNaN(res) ? 0 : res;
+    }
+    // Ngược lại coi dấu chấm là phân cách hàng nghìn (1.000.000)
+    const clean = str.replace(/\./g, '');
+    const res = parseFloat(clean);
+    return isNaN(res) ? 0 : res;
+  }
+
+  const clean = str.replace(/[^0-9.-]/g, '');
+  const res = parseFloat(clean);
+  return isNaN(res) ? 0 : res;
 }
 
-export function formatNumberString(val: any): string {
+export function parseFormattedNumber(val: any): number {
+  return parseFormattedDecimal(val);
+}
+
+export function formatNumberString(val: any, allowDecimal: boolean = true): string {
   if (val === undefined || val === null || val === '') return '';
-  const num = typeof val === 'number' ? val : parseFormattedNumber(val);
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  if (typeof val === 'number') {
+    if (isNaN(val)) return '';
+    if (Number.isInteger(val)) {
+      return val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+    // Số thập phân lẻ (VD: 1.5 -> 1,5 hoặc 0.25 -> 0,25)
+    const str = Number(val.toFixed(4)).toString();
+    const parts = str.split('.');
+    const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const decPart = parts[1];
+    return decPart !== undefined ? `${intPart},${decPart}` : intPart;
+  }
+
+  const rawStr = val.toString().trim();
+  if (rawStr.endsWith(',') || rawStr.endsWith('.')) {
+    return rawStr;
+  }
+
+  const num = parseFormattedDecimal(rawStr);
+  if (isNaN(num)) return '';
+  if (Number.isInteger(num)) {
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  const str = Number(num.toFixed(4)).toString();
+  const parts = str.split('.');
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const decPart = parts[1];
+  return decPart !== undefined ? `${intPart},${decPart}` : intPart;
 }
 
 export function formatVND(val: number | undefined | null, isPrivacyMode: boolean = false): string {

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Asset, DatabaseState } from '../types';
+import { Asset, DatabaseState, AssetTransaction } from '../types';
 import { formatVND, formatNumberString, parseFormattedNumber, formatDateVN, calculateMaturityDate, calculateMaturityDateISO, getStandardTimeline, getActualTimelinePoints } from '../utils/format';
 import { createPointValuePlugin } from '../utils/chartPlugin';
 import { Chart, registerables } from 'chart.js';
-import { Layers, PlusCircle, RotateCw, Check, Sliders, ChevronDown, ChevronUp, Eye, Pen, Trash2, TrendingUp, AlertCircle, Calendar, X, Award, Info, ChevronRight, Clock, Cloud, Landmark, Building2, FolderOpen, FolderClosed, ArrowUpDown, ListFilter } from 'lucide-react';
+import { Layers, PlusCircle, RotateCw, Check, Sliders, ChevronDown, ChevronUp, Eye, Pen, Trash2, TrendingUp, AlertCircle, Calendar, X, Award, Info, ChevronRight, Clock, Cloud, Landmark, Building2, FolderOpen, FolderClosed, ArrowUpDown, ListFilter, History } from 'lucide-react';
 import { getVietnamWealthBenchmark } from '../utils/benchmarkUtils';
 import { BenchmarkModal } from './BenchmarkModal';
 import { groupSavingsByBank, BankGroup, extractBankFromAssetName } from '../utils/bankUtils';
+import { AssetHistoryModal } from './AssetHistoryModal';
 
 Chart.register(...registerables);
 
@@ -18,6 +19,7 @@ interface TabPyramidProps {
   onSyncDrive: () => Promise<void>;
   isSyncing: boolean;
   cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
+  onSaveTransactions?: (updatedTxs: AssetTransaction[], updatedAsset?: Asset) => void;
 }
 
 const assetTypeLabels: Record<string, string> = {
@@ -48,6 +50,7 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
   onSyncDrive,
   isSyncing,
   cloudSyncStatus = 'synced',
+  onSaveTransactions,
 }) => {
   const [showForm, setShowForm] = useState(false);
   const [showTable, setShowTable] = useState(false);
@@ -55,6 +58,10 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [sortMode, setSortMode] = useState<'default' | 'value-desc' | 'value-asc' | 'name-asc' | 'level'>('default');
   const [netWorthRange, setNetWorthRange] = useState<'quarter' | 'year' | '3years' | '5years'>('quarter');
+
+  // History modal states
+  const [selectedHistoryAsset, setSelectedHistoryAsset] = useState<Asset | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Form states
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -972,7 +979,7 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
 
           {/* Conditional Extra Fields */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 border-t border-slate-100 pt-3">
-            {(type === 'stock' || type === 'crypto' || type === 'realestate_land' || type === 'gold' || type === 'private_equity') && (
+            {(type === 'stock' || type === 'crypto' || type === 'realestate_land' || type === 'realestate_rent' || type === 'realestate_live' || type === 'gold' || type === 'private_equity') && (
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
                   Tổng Giá Vốn Ban Đầu (VNĐ)
@@ -987,16 +994,30 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
               </div>
             )}
 
+            {(type === 'realestate_land' || type === 'realestate_rent' || type === 'realestate_live' || type === 'private_equity' || type === 'crypto') && (
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Ngày Mua / Bắt Đầu Sở Hữu
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none"
+                />
+              </div>
+            )}
+
             {(type === 'stock' || type === 'gold') && (
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  {type === 'stock' ? 'Số Lượng Cổ Phiếu (CP)' : 'Số Lượng Vàng (Chỉ)'}
+                  {type === 'stock' ? 'Số Lượng Cổ Phiếu (CP)' : 'Số Lượng Vàng (Chỉ/Lượng - hỗ trợ số lẻ như 1.5 hoặc 0.5)'}
                 </label>
                 <input
                   type="text"
                   value={quantityStr}
-                  onChange={(e) => setQuantityStr(formatNumberString(e.target.value))}
-                  placeholder="0"
+                  onChange={(e) => setQuantityStr(e.target.value)}
+                  placeholder={type === 'gold' ? 'VD: 1.5 hoặc 0.5' : 'VD: 1000'}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-xs font-semibold outline-none"
                 />
               </div>
@@ -1295,13 +1316,23 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                     </span>
                                     <span className="text-xs font-bold text-slate-900 truncate">{a.name}</span>
                                   </div>
-                                  <div className="flex items-center space-x-1 shrink-0">
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedHistoryAsset(a);
+                                        setShowHistoryModal(true);
+                                      }}
+                                      className="p-1 text-blue-600 bg-blue-50/80 hover:bg-blue-100 rounded-md transition cursor-pointer"
+                                      title="Lịch sử Mua/Gom/Gửi"
+                                    >
+                                      <History className="w-3 h-3" />
+                                    </button>
                                     <button
                                       onClick={() => handleEdit(a)}
-                                      className="p-1 text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
+                                      className="p-1 text-amber-600 bg-amber-50/80 hover:bg-amber-100 rounded-md transition cursor-pointer"
                                       title="Sửa"
                                     >
-                                      <Pen className="w-2.5 h-2.5" />
+                                      <Pen className="w-3 h-3" />
                                     </button>
                                     <button
                                       onClick={() => {
@@ -1309,10 +1340,10 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                           onRemoveAsset(a.id);
                                         }
                                       }}
-                                      className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                      className="p-1 text-rose-500 bg-rose-50/80 hover:bg-rose-100 rounded-md transition cursor-pointer"
                                       title="Xóa"
                                     >
-                                      <Trash2 className="w-2.5 h-2.5" />
+                                      <Trash2 className="w-3 h-3" />
                                     </button>
                                   </div>
                                 </div>
@@ -1442,25 +1473,37 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                         '—'
                                       )}
                                     </td>
-                                    <td className="py-1 px-2 text-center space-x-1">
-                                      <button
-                                        onClick={() => handleEdit(a)}
-                                        className="p-1 text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer"
-                                        title="Sửa"
-                                      >
-                                        <Pen className="w-3 h-3" />
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          if (confirm(`Bạn có chắc chắn muốn xóa sổ "${a.name}"?`)) {
-                                            onRemoveAsset(a.id);
-                                          }
-                                        }}
-                                        className="p-1 text-rose-500 hover:bg-rose-50 rounded transition cursor-pointer"
-                                        title="Xóa"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
+                                    <td className="py-1 px-2 text-center">
+                                      <div className="flex items-center justify-center gap-1">
+                                        <button
+                                          onClick={() => {
+                                            setSelectedHistoryAsset(a);
+                                            setShowHistoryModal(true);
+                                          }}
+                                          className="p-1 text-blue-600 bg-blue-50/80 hover:bg-blue-100 rounded-md transition cursor-pointer"
+                                          title="Lịch sử Mua/Gom/Gửi"
+                                        >
+                                          <History className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleEdit(a)}
+                                          className="p-1 text-amber-600 bg-amber-50/80 hover:bg-amber-100 rounded-md transition cursor-pointer"
+                                          title="Sửa"
+                                        >
+                                          <Pen className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            if (confirm(`Bạn có chắc chắn muốn xóa sổ "${a.name}"?`)) {
+                                              onRemoveAsset(a.id);
+                                            }
+                                          }}
+                                          className="p-1 text-rose-500 bg-rose-50/80 hover:bg-rose-100 rounded-md transition cursor-pointer"
+                                          title="Xóa"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -1511,32 +1554,71 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
 
                         let leftSubDetail = null;
                         if (a.type === 'stock') {
+                          const qty = a.quantity || 0;
+                          const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                          const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
                           leftSubDetail = (
-                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
-                              {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} CP</span>}
-                              {a.costPrice && a.quantity && (
-                                <span>• Vốn: {formatVND(Math.round(a.costPrice / a.quantity))}</span>
-                              )}
-                              {pnlMobile}
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {qty > 0 && <span className="font-bold text-slate-800">{formatNumberString(qty)} CP</span>}
+                                {avgCost > 0 && <span className="text-slate-600">• Vốn TB: <strong className="text-slate-900">{formatVND(avgCost)}/CP</strong></span>}
+                              </div>
+                              <div className="flex items-center gap-1 text-[9px] text-blue-700 font-semibold">
+                                {mktPrice > 0 && <span>Giá TT: {formatVND(mktPrice)}/CP</span>}
+                                {pnlMobile}
+                              </div>
                             </div>
                           );
                         } else if (a.type === 'gold') {
+                          const qty = a.quantity || 0;
+                          const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                          const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
                           leftSubDetail = (
-                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
-                              {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} chỉ</span>}
-                              {pnlMobile}
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {qty > 0 && <span className="font-bold text-amber-900">{formatNumberString(qty)} chỉ</span>}
+                                {avgCost > 0 && <span className="text-slate-600">• Vốn TB: <strong className="text-slate-900">{formatVND(avgCost)}/chỉ</strong></span>}
+                              </div>
+                              <div className="flex items-center gap-1 text-[9px] text-blue-700 font-semibold">
+                                {mktPrice > 0 && <span>Giá TT: {formatVND(mktPrice)}/chỉ</span>}
+                                {pnlMobile}
+                              </div>
                             </div>
                           );
                         } else if (a.type === 'bond' || a.type === 'peer_lending') {
                           leftSubDetail = (
-                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5">
-                              {a.termMonths ? `Hạn: ${a.termMonths}T • ` : ''}{a.rate ? `Lãi: ${a.rate}%/n` : ''}
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                              <div>{a.termMonths ? `Hạn: ${a.termMonths}T • ` : ''}{a.rate ? `Lãi: ${a.rate}%/n` : ''}</div>
+                              {a.startDate && (
+                                <div className="text-slate-600 font-semibold flex items-center gap-1">
+                                  <Calendar className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>Bắt đầu: <strong className="text-slate-900">{formatDateVN(a.startDate)}</strong></span>
+                                </div>
+                              )}
                             </div>
                           );
-                        } else if (a.type === 'realestate_accumulate' || a.type === 'realestate_rent') {
+                        } else if (a.type === 'realestate_land' || a.type === 'realestate_rent' || a.type === 'realestate_live' || a.type === 'realestate_accumulate') {
                           leftSubDetail = (
-                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5">
-                              {a.startDate ? `Sở hữu từ: ${formatDateVN(a.startDate)}` : 'Bất động sản'}
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                              {a.startDate ? (
+                                <div className="text-slate-700 font-semibold flex items-center gap-1">
+                                  <Calendar className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>Ngày mua/sở hữu: <strong className="text-slate-900">{formatDateVN(a.startDate)}</strong></span>
+                                </div>
+                              ) : <div>Bất động sản</div>}
+                              {a.costPrice && a.costPrice > 0 && <div>Giá vốn mua: <strong className="text-slate-800">{formatVND(a.costPrice)}</strong> {pnlMobile}</div>}
+                            </div>
+                          );
+                        } else if (a.type === 'private_equity' || a.type === 'crypto') {
+                          leftSubDetail = (
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                              {a.startDate && (
+                                <div className="text-slate-700 font-semibold flex items-center gap-1">
+                                  <Calendar className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>Bắt đầu: <strong className="text-slate-900">{formatDateVN(a.startDate)}</strong></span>
+                                </div>
+                              )}
+                              {a.costPrice && a.costPrice > 0 && <div>Giá vốn: <strong className="text-slate-800">{formatVND(a.costPrice)}</strong> {pnlMobile}</div>}
                             </div>
                           );
                         }
@@ -1579,13 +1661,23 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                 <span className="text-[9.5px] text-slate-400 font-normal truncate">({categoryName})</span>
                               </div>
 
-                              <div className="flex items-center space-x-1 shrink-0">
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => {
+                                    setSelectedHistoryAsset(a);
+                                    setShowHistoryModal(true);
+                                  }}
+                                  className="p-1 text-blue-600 bg-blue-50/80 hover:bg-blue-100 rounded-md transition cursor-pointer"
+                                  title="Lịch sử Mua/Gom"
+                                >
+                                  <History className="w-3 h-3" />
+                                </button>
                                 <button
                                   onClick={() => handleEdit(a)}
-                                  className="p-1 text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
+                                  className="p-1 text-amber-600 bg-amber-50/80 hover:bg-amber-100 rounded-md transition cursor-pointer"
                                   title="Sửa"
                                 >
-                                  <Pen className="w-2.5 h-2.5" />
+                                  <Pen className="w-3 h-3" />
                                 </button>
                                 <button
                                   onClick={() => {
@@ -1593,10 +1685,10 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                       onRemoveAsset(a.id);
                                     }
                                   }}
-                                  className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                  className="p-1 text-rose-500 bg-rose-50/80 hover:bg-rose-100 rounded-md transition cursor-pointer"
                                   title="Xóa"
                                 >
-                                  <Trash2 className="w-2.5 h-2.5" />
+                                  <Trash2 className="w-3 h-3" />
                                 </button>
                               </div>
                             </div>
@@ -1659,11 +1751,19 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                               if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
                               if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
                             } else if (a.type === 'stock') {
-                              if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} CP`);
-                              if (a.costPrice && a.quantity)
-                                detailsList.push(`Giá vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
+                              const qty = a.quantity || 0;
+                              const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                              const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
+                              if (qty > 0) detailsList.push(`SL: ${formatNumberString(qty)} CP`);
+                              if (avgCost > 0) detailsList.push(`Vốn TB: ${formatVND(avgCost)}/CP`);
+                              if (mktPrice > 0) detailsList.push(`Giá TT: ${formatVND(mktPrice)}/CP`);
                             } else if (a.type === 'gold') {
-                              if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} chỉ`);
+                              const qty = a.quantity || 0;
+                              const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                              const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
+                              if (qty > 0) detailsList.push(`SL: ${formatNumberString(qty)} chỉ`);
+                              if (avgCost > 0) detailsList.push(`Vốn TB: ${formatVND(avgCost)}/chỉ`);
+                              if (mktPrice > 0) detailsList.push(`Giá TT: ${formatVND(mktPrice)}/chỉ`);
                             } else if (a.type === 'realestate_rent') {
                               if (a.cashflow) detailsList.push(`Dòng tiền: +${formatVND(a.cashflow)}/th`);
                             }
@@ -1712,12 +1812,11 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                   <div className="font-bold text-slate-900">{a.name}</div>
                                   <div className="text-[9.5px] text-slate-500">{categoryName}</div>
                                   {detailsList.length > 0 && (
-                                    <div className="text-[9.5px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-1">
+                                    <div className="text-[9.5px] text-slate-600 mt-1 flex flex-wrap items-center gap-1">
                                       {detailsList.map((item, i) => (
-                                        <React.Fragment key={i}>
-                                          <span>{item}</span>
-                                          {i < detailsList.length - 1 && <span className="text-slate-300">•</span>}
-                                        </React.Fragment>
+                                        <span key={i} className="inline-block bg-slate-100/90 text-slate-700 px-1.5 py-0.5 rounded font-medium border border-slate-200/60">
+                                          {item}
+                                        </span>
                                       ))}
                                     </div>
                                   )}
@@ -1743,25 +1842,37 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                                 </td>
                                 <td className="py-1.5 px-2.5 text-right">{cashflowDetail}</td>
                                 <td className="py-1.5 px-2.5 text-center text-[10px] text-slate-500">{a.updatedAt || 'Mới'}</td>
-                                <td className="py-1.5 px-2.5 text-center space-x-1">
-                                  <button
-                                    onClick={() => handleEdit(a)}
-                                    className="p-1 text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer"
-                                    title="Sửa"
-                                  >
-                                    <Pen className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      if (confirm(`Bạn có chắc chắn muốn xóa tài sản "${a.name}"?`)) {
-                                        onRemoveAsset(a.id);
-                                      }
-                                    }}
-                                    className="p-1 text-rose-500 hover:bg-rose-50 rounded transition cursor-pointer"
-                                    title="Xóa"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
+                                <td className="py-1.5 px-2.5 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedHistoryAsset(a);
+                                        setShowHistoryModal(true);
+                                      }}
+                                      className="p-1 text-blue-600 bg-blue-50/80 hover:bg-blue-100 rounded-md transition cursor-pointer"
+                                      title="Lịch sử Mua/Gom"
+                                    >
+                                      <History className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleEdit(a)}
+                                      className="p-1 text-amber-600 bg-amber-50/80 hover:bg-amber-100 rounded-md transition cursor-pointer"
+                                      title="Sửa"
+                                    >
+                                      <Pen className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Bạn có chắc chắn muốn xóa tài sản "${a.name}"?`)) {
+                                          onRemoveAsset(a.id);
+                                        }
+                                      }}
+                                      className="p-1 text-rose-500 bg-rose-50/80 hover:bg-rose-100 rounded-md transition cursor-pointer"
+                                      title="Xóa"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1820,20 +1931,35 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                           </div>
                         );
                       } else if (a.type === 'stock') {
+                        const qty = a.quantity || 0;
+                        const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                        const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
                         leftSubDetail = (
-                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
-                            {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} CP</span>}
-                            {a.costPrice && a.quantity && (
-                              <span>• Vốn: {formatVND(Math.round(a.costPrice / a.quantity))}</span>
-                            )}
-                            {pnlMobile}
+                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {qty > 0 && <span className="font-bold text-slate-800">{formatNumberString(qty)} CP</span>}
+                              {avgCost > 0 && <span className="text-slate-600">• Vốn TB: <strong className="text-slate-900">{formatVND(avgCost)}/CP</strong></span>}
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] text-blue-700 font-semibold">
+                              {mktPrice > 0 && <span>Giá TT: {formatVND(mktPrice)}/CP</span>}
+                              {pnlMobile}
+                            </div>
                           </div>
                         );
                       } else if (a.type === 'gold') {
+                        const qty = a.quantity || 0;
+                        const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                        const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
                         leftSubDetail = (
-                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
-                            {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} chỉ</span>}
-                            {pnlMobile}
+                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 space-y-0.5">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {qty > 0 && <span className="font-bold text-amber-900">{formatNumberString(qty)} chỉ</span>}
+                              {avgCost > 0 && <span className="text-slate-600">• Vốn TB: <strong className="text-slate-900">{formatVND(avgCost)}/chỉ</strong></span>}
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] text-blue-700 font-semibold">
+                              {mktPrice > 0 && <span>Giá TT: {formatVND(mktPrice)}/chỉ</span>}
+                              {pnlMobile}
+                            </div>
                           </div>
                         );
                       } else if (a.type === 'bond' || a.type === 'peer_lending') {
@@ -1909,6 +2035,16 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
 
                             {/* Action buttons */}
                             <div className="flex items-center space-x-1 shrink-0">
+                              <button
+                                onClick={() => {
+                                  setSelectedHistoryAsset(a);
+                                  setShowHistoryModal(true);
+                                }}
+                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition cursor-pointer"
+                                title="Lịch sử Mua/Gom/Gửi"
+                              >
+                                <History className="w-2.5 h-2.5" />
+                              </button>
                               <button
                                 onClick={() => handleEdit(a)}
                                 className="p-1 text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
@@ -2001,11 +2137,19 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                             if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
                             if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
                           } else if (a.type === 'stock') {
-                            if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} CP`);
-                            if (a.costPrice && a.quantity)
-                              detailsList.push(`Giá vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
+                            const qty = a.quantity || 0;
+                            const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                            const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
+                            if (qty > 0) detailsList.push(`SL: ${formatNumberString(qty)} CP`);
+                            if (avgCost > 0) detailsList.push(`Vốn TB: ${formatVND(avgCost)}/CP`);
+                            if (mktPrice > 0) detailsList.push(`Giá TT: ${formatVND(mktPrice)}/CP`);
                           } else if (a.type === 'gold') {
-                            if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} chỉ`);
+                            const qty = a.quantity || 0;
+                            const avgCost = a.costPrice && qty > 0 ? Math.round(a.costPrice / qty) : (a.unitPrice || 0);
+                            const mktPrice = a.amount && qty > 0 ? Math.round(a.amount / qty) : 0;
+                            if (qty > 0) detailsList.push(`SL: ${formatNumberString(qty)} chỉ`);
+                            if (avgCost > 0) detailsList.push(`Vốn TB: ${formatVND(avgCost)}/chỉ`);
+                            if (mktPrice > 0) detailsList.push(`Giá TT: ${formatVND(mktPrice)}/chỉ`);
                           } else if (a.type === 'realestate_rent') {
                             if (a.cashflow) detailsList.push(`Dòng tiền: +${formatVND(a.cashflow)}/th`);
                           }
@@ -2106,6 +2250,16 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                               <td className="py-1.5 px-2.5 text-center text-[10px] text-slate-500">{a.updatedAt || 'Mới'}</td>
                               <td className="py-1.5 px-2.5 text-center space-x-1">
                                 <button
+                                  onClick={() => {
+                                    setSelectedHistoryAsset(a);
+                                    setShowHistoryModal(true);
+                                  }}
+                                  className="p-1 text-blue-600 hover:bg-blue-50 rounded transition cursor-pointer"
+                                  title="Lịch sử Mua/Gom/Gửi"
+                                >
+                                  <History className="w-3 h-3" />
+                                </button>
+                                <button
                                   onClick={() => handleEdit(a)}
                                   className="p-1 text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer"
                                   title="Sửa"
@@ -2162,6 +2316,27 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
           <canvas ref={chartCanvasRef}></canvas>
         </div>
       </div>
+
+      {/* Asset History / Transactions Modal */}
+      {showHistoryModal && selectedHistoryAsset && (
+        <AssetHistoryModal
+          isOpen={showHistoryModal}
+          asset={selectedHistoryAsset}
+          db={db}
+          isPrivacyMode={isPrivacyMode}
+          onClose={() => {
+            setShowHistoryModal(false);
+            setSelectedHistoryAsset(null);
+          }}
+          onSaveTransactions={(updatedTxs, updatedAsset, updatedGoal) => {
+            if (onSaveTransactions) {
+              onSaveTransactions(updatedTxs, updatedAsset, updatedGoal);
+            } else if (updatedAsset) {
+              onUpdateAsset(updatedAsset);
+            }
+          }}
+        />
+      )}
 
       {/* Vietnam Wealth Benchmark Modal */}
       <BenchmarkModal

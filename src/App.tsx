@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { DatabaseState, Asset, Debt, Goal } from './types';
+import { DatabaseState, Asset, Debt, Goal, AssetTransaction } from './types';
 import {
   DEFAULT_DATABASE_STATE,
   loadCloudData,
@@ -839,6 +839,48 @@ export default function App() {
     });
   };
 
+  const handleSaveTransactions = (
+    updatedTxs: AssetTransaction[],
+    updatedAsset?: Asset,
+    updatedGoal?: Goal
+  ) => {
+    setDb((prev) => {
+      let newAssets = prev.assets;
+      if (updatedAsset) {
+        const assetIndex = prev.assets.findIndex((a) => a.id === updatedAsset.id);
+        if (assetIndex >= 0) {
+          newAssets = [...prev.assets];
+          newAssets[assetIndex] = updatedAsset;
+        } else {
+          newAssets = [...prev.assets, updatedAsset];
+        }
+      }
+
+      let newGoals = prev.goals;
+      if (updatedGoal) {
+        const goalIndex = prev.goals.findIndex((g) => g.id === updatedGoal.id);
+        if (goalIndex >= 0) {
+          newGoals = [...prev.goals];
+          newGoals[goalIndex] = updatedGoal;
+        } else {
+          newGoals = [...prev.goals, updatedGoal];
+        }
+      }
+
+      const now = Date.now();
+      const newDb = {
+        ...prev,
+        transactions: updatedTxs,
+        assets: newAssets,
+        goals: newGoals,
+        lastUpdate: getCurrentTimestampVN(),
+        updatedAtTimestamp: now,
+      };
+      triggerBackgroundSync(newDb);
+      return newDb;
+    });
+  };
+
   const handleReloginAfterChangePass = () => {
     setShowChangePasswordModal(false);
     handleLogout();
@@ -853,6 +895,7 @@ export default function App() {
       assets: (Asset | Omit<Asset, 'id'>)[];
       debts: (Debt | Omit<Debt, 'id'>)[];
       goals: (Goal | Omit<Goal, 'id'>)[];
+      transactions?: (AssetTransaction | Omit<AssetTransaction, 'id'>)[];
       salaryIncome?: number;
       otherIncome?: number;
     },
@@ -862,6 +905,7 @@ export default function App() {
       let updatedAssets: Asset[] = [...prev.assets];
       let updatedDebts: Debt[] = [...prev.debts];
       let updatedGoals: Goal[] = [...prev.goals];
+      let updatedTransactions: AssetTransaction[] = [...(prev.transactions || [])];
 
       if (mode === 'sync') {
         // Mode 1: Smart Sync by ID
@@ -930,6 +974,17 @@ export default function App() {
           });
           updatedGoals = Array.from(goalMap.values());
         }
+
+        // Transactions Sync
+        if (data.transactions && data.transactions.length > 0) {
+          const txMap = new Map<string, AssetTransaction>();
+          (prev.transactions || []).forEach((t) => txMap.set(String(t.id), t));
+          data.transactions.forEach((tx) => {
+            const txId = 'id' in tx && tx.id ? String(tx.id) : `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            txMap.set(txId, { ...(tx as any), id: txId });
+          });
+          updatedTransactions = Array.from(txMap.values());
+        }
       } else if (mode === 'replace') {
         // Mode 2: Replace All
         const usedAssetIds = new Set<number>();
@@ -976,6 +1031,13 @@ export default function App() {
                 return { ...(item as any), id };
               })
             : prev.goals;
+
+        if (data.transactions && data.transactions.length > 0) {
+          updatedTransactions = data.transactions.map((tx, idx) => ({
+            ...(tx as any),
+            id: 'id' in tx && tx.id ? String(tx.id) : `tx-${Date.now()}-${idx}`,
+          }));
+        }
       } else {
         // Mode 3: Append All (create fresh IDs)
         const existingAssetIds = new Set(prev.assets.map((a) => a.id));
@@ -1004,6 +1066,14 @@ export default function App() {
           return { ...(item as any), id: nextGoalId };
         });
         updatedGoals = [...prev.goals, ...formattedNewGoals];
+
+        if (data.transactions && data.transactions.length > 0) {
+          const appendedTxs: AssetTransaction[] = data.transactions.map((tx, idx) => ({
+            ...(tx as any),
+            id: `tx-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          }));
+          updatedTransactions = [...(prev.transactions || []), ...appendedTxs];
+        }
       }
 
       const now = Date.now();
@@ -1012,6 +1082,7 @@ export default function App() {
         assets: updatedAssets,
         debts: updatedDebts,
         goals: updatedGoals,
+        transactions: updatedTransactions,
         salaryIncome:
           data.salaryIncome !== undefined && data.salaryIncome > 0 ? data.salaryIncome : prev.salaryIncome,
         otherIncome:
@@ -1138,6 +1209,7 @@ export default function App() {
             onSyncDrive={handleSyncDrive}
             isSyncing={isSyncing}
             cloudSyncStatus={cloudSyncStatus}
+            onSaveTransactions={handleSaveTransactions}
           />
         )}
 
@@ -1159,6 +1231,7 @@ export default function App() {
             onRemoveGoal={handleRemoveGoal}
             onUpdateAssetDirectly={handleUpdateAsset}
             onUpdateDebtDirectly={handleUpdateDebt}
+            onSaveTransactions={handleSaveTransactions}
           />
         )}
       </main>
