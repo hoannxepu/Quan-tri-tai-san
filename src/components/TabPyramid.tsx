@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Asset, DatabaseState } from '../types';
 import { formatVND, formatNumberString, parseFormattedNumber, formatDateVN, calculateMaturityDate, calculateMaturityDateISO, getStandardTimeline, getActualTimelinePoints } from '../utils/format';
 import { createPointValuePlugin } from '../utils/chartPlugin';
 import { Chart, registerables } from 'chart.js';
-import { Layers, PlusCircle, RotateCw, Check, Sliders, ChevronDown, ChevronUp, Eye, Pen, Trash2, TrendingUp, AlertCircle, Calendar, X, Award, Info, ChevronRight, Clock, Cloud } from 'lucide-react';
+import { Layers, PlusCircle, RotateCw, Check, Sliders, ChevronDown, ChevronUp, Eye, Pen, Trash2, TrendingUp, AlertCircle, Calendar, X, Award, Info, ChevronRight, Clock, Cloud, Landmark, Building2, FolderOpen, FolderClosed, ArrowUpDown, ListFilter } from 'lucide-react';
 import { getVietnamWealthBenchmark } from '../utils/benchmarkUtils';
 import { BenchmarkModal } from './BenchmarkModal';
+import { groupSavingsByBank, BankGroup, extractBankFromAssetName } from '../utils/bankUtils';
 
 Chart.register(...registerables);
 
@@ -101,6 +102,28 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
     if (sortMode === 'level') return Number(a.level) - Number(b.level);
     return 0;
   });
+
+  const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
+  const [isSavingsOpen, setIsSavingsOpen] = useState<boolean>(false);
+
+  const savingAssets = useMemo(() => sortedAssets.filter((a) => a.type === 'saving'), [sortedAssets]);
+  const nonSavingAssets = useMemo(() => sortedAssets.filter((a) => a.type !== 'saving'), [sortedAssets]);
+  const bankGroups = useMemo(() => groupSavingsByBank(savingAssets), [savingAssets]);
+
+  const totalSavingPrincipal = useMemo(() => savingAssets.reduce((sum, a) => sum + a.amount, 0), [savingAssets]);
+  const totalSavingInterest = useMemo(() => {
+    return savingAssets.reduce((sum, a) => {
+      const interest = a.rate && a.termMonths ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12)) : 0;
+      return sum + interest;
+    }, 0);
+  }, [savingAssets]);
+  const totalSavingMonthly = useMemo(() => {
+    return savingAssets.reduce((sum, a) => {
+      const interest = a.rate && a.termMonths ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12)) : 0;
+      const monthly = a.termMonths ? Math.round(interest / a.termMonths) : 0;
+      return sum + monthly;
+    }, 0);
+  }, [savingAssets]);
 
   // Render chart - chỉ hiển thị các tháng thực tế có dữ liệu từ tháng bắt đầu
   useEffect(() => {
@@ -1141,232 +1164,631 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
         </div>
 
         {showTable && (
-          <div className="border-t border-slate-100 p-2.5 sm:p-5 pt-2 sm:pt-3 space-y-2 sm:space-y-4">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-[10.5px] text-slate-500 font-medium truncate">
-                Bảng chi tiết các lớp tài sản đã khởi tạo:
-              </span>
-              <div className="flex items-center space-x-1 sm:space-x-2 text-xs shrink-0">
-                <span className="text-[10.5px] font-semibold text-slate-600 hidden sm:inline">Sắp xếp:</span>
-                <select
-                  value={sortMode}
-                  onChange={(e) => setSortMode(e.target.value as any)}
-                  className="bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-semibold outline-none focus:border-emerald-500"
+          <div className="border-t border-slate-100 p-2.5 sm:p-5 pt-2 sm:pt-3 space-y-3 sm:space-y-4">
+            {/* Toolbar: Chế độ hiển thị, Mở/Thu gọn tất cả & Sắp xếp */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              {/* View Mode Toggle */}
+              <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                <button
+                  onClick={() => setViewMode('grouped')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] sm:text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === 'grouped'
+                      ? 'bg-white text-emerald-700 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  <option value="default">Mặc định</option>
-                  <option value="value-desc">Giá trị giảm dần</option>
-                  <option value="value-asc">Giá trị tăng dần</option>
-                  <option value="name-asc">Tên tài sản (A → Z)</option>
-                  <option value="level">Tầng tháp (Tầng 1 → 3)</option>
-                </select>
+                  <Landmark className="w-3.5 h-3.5" />
+                  <span>Gom Theo Ngân Hàng</span>
+                  {bankGroups.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-100 text-emerald-800 font-bold">
+                      {bankGroups.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setViewMode('flat')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] sm:text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === 'flat'
+                      ? 'bg-white text-emerald-700 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <ListFilter className="w-3.5 h-3.5" />
+                  <span>Danh Sách Toàn Bộ</span>
+                </button>
+              </div>
+
+              {/* Right controls: Sort */}
+              <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                <div className="flex items-center space-x-1">
+                  <span className="text-[10.5px] font-semibold text-slate-600 hidden sm:inline">Sắp xếp:</span>
+                  <select
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.target.value as any)}
+                    className="bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-semibold outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="default">Mặc định</option>
+                    <option value="value-desc">Giá trị giảm dần</option>
+                    <option value="value-asc">Giá trị tăng dần</option>
+                    <option value="name-asc">Tên tài sản (A → Z)</option>
+                    <option value="level">Tầng tháp (Tầng 1 → 3)</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* 1. DEDICATED MOBILE VIEW (< md) - CLEAN COMPACT CARD LIST */}
-            <div className="md:hidden space-y-2">
-              {sortedAssets.length === 0 ? (
-                <div className="p-3 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                  Chưa có tài sản nào. Vui lòng thêm ở khung trên.
-                </div>
-              ) : (
-                sortedAssets.map((a, index) => {
-                  const levelBadge =
-                    a.level === '1'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : a.level === '2'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-rose-100 text-rose-800';
-                  const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
-
-                  let pnlMobile = null;
-                  if (a.costPrice && a.costPrice > 0) {
-                    const diff = a.amount - a.costPrice;
-                    const pct = ((diff / a.costPrice) * 100).toFixed(1);
-                    const isGain = diff >= 0;
-                    pnlMobile = (
-                      <span className={`text-[10px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        ({isGain ? '+' : ''}{pct}%)
-                      </span>
-                    );
-                  }
-
-                  // Sub-details under total amount (Left Column)
-                  let leftSubDetail = null;
-                  if (a.type === 'saving') {
-                    leftSubDetail = (
-                      <div className="text-[10.5px] text-slate-500 font-semibold mt-0.5">
-                        Kỳ hạn: {a.termMonths ? `${a.termMonths} tháng` : '—'} • Lãi: {a.rate ? `${a.rate}%/n` : '—'}
-                      </div>
-                    );
-                  } else if (a.type === 'stock') {
-                    leftSubDetail = (
-                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
-                        {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} CP</span>}
-                        {a.costPrice && a.quantity && (
-                          <span>• Vốn: {formatVND(Math.round(a.costPrice / a.quantity))}</span>
-                        )}
-                        {pnlMobile}
-                      </div>
-                    );
-                  } else if (a.type === 'gold') {
-                    leftSubDetail = (
-                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
-                        {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} chỉ</span>}
-                        {pnlMobile}
-                      </div>
-                    );
-                  } else if (a.type === 'bond' || a.type === 'peer_lending') {
-                    leftSubDetail = (
-                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5">
-                        {a.termMonths ? `Hạn: ${a.termMonths}T • ` : ''}{a.rate ? `Lãi: ${a.rate}%/n` : ''}
-                      </div>
-                    );
-                  } else if (a.type === 'realestate_accumulate' || a.type === 'realestate_rent') {
-                    leftSubDetail = (
-                      <div className="text-[10.5px] text-slate-500 font-medium mt-0.5">
-                        {a.startDate ? `Sở hữu từ: ${formatDateVN(a.startDate)}` : 'Bất động sản'}
-                      </div>
-                    );
-                  }
-
-                  // Right Column (Lãi / Dòng tiền / Ngày đáo hạn)
-                  let rightCol = null;
-                  if (a.type === 'saving') {
-                    const totalInterest = a.rate && a.termMonths ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12)) : 0;
-                    const matDate = formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths);
-                    rightCol = (
-                      <div className="text-right shrink-0">
-                        {totalInterest > 0 && (
-                          <div className="text-xs font-black text-blue-600 leading-tight">
-                            +{formatVND(totalInterest, isPrivacyMode)}
-                            <span className="text-[9px] font-normal text-slate-400 block sm:inline"> (lãi đáo hạn)</span>
-                          </div>
-                        )}
-                        {matDate && (
-                          <div className="text-[10.5px] text-slate-600 font-medium mt-0.5">
-                            Đáo hạn: <span className="font-bold text-slate-800">{matDate}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  } else if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
-                    if (a.cashflow) {
-                      rightCol = (
-                        <div className="text-right shrink-0">
-                          <div className="text-xs font-black text-emerald-600 leading-tight">
-                            +{formatVND(a.cashflow, isPrivacyMode)}/th
-                          </div>
-                          <div className="text-[9.5px] text-slate-400 font-medium mt-0.5">Dòng tiền thu</div>
-                        </div>
-                      );
-                    }
-                  } else if (a.type === 'stock' && a.quantity && a.divCash) {
-                    const mDiv = Math.round((a.quantity * a.divCash) / 12);
-                    rightCol = (
-                      <div className="text-right shrink-0">
-                        <div className="text-xs font-black text-emerald-600 leading-tight">
-                          +{formatVND(mDiv, isPrivacyMode)}/th
-                        </div>
-                        <div className="text-[9.5px] text-slate-400 font-medium mt-0.5">Cổ tức tiền</div>
-                      </div>
-                    );
-                  }
-
-                  const matDate = a.type === 'saving' ? (formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths)) : null;
-
-                  return (
-                    <div key={a.id} className="bg-white hover:bg-slate-50/80 rounded-xl border border-slate-200/90 p-3 space-y-2 transition shadow-2xs">
-                      {/* Row 1: STT, Tầng, Tên tài sản, Phân loại & Nút Thao tác */}
-                      <div className="flex items-center justify-between gap-1.5">
-                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <span className="w-4 h-4 rounded bg-slate-100 text-slate-600 text-[9px] font-black flex items-center justify-center shrink-0">
-                            {index + 1}
+            {/* CHẾ ĐỘ 1: GOM NHÓM THEO NGÂN HÀNG & LỚP TÀI SẢN */}
+            {viewMode === 'grouped' && (
+              <div className="space-y-3">
+                {/* 1.1. PHẦN SỔ TIẾT KIỆM (GOM 1 MỤC DUY NHẤT - MẶC ĐỊNH THU GỌN) */}
+                {savingAssets.length > 0 && (
+                  <div className="bg-white rounded-lg border border-slate-200 shadow-2xs overflow-hidden transition-all duration-150 hover:border-blue-300">
+                    {/* Header đơn gom 1 dòng: Click để mở/đóng */}
+                    <div
+                      onClick={() => setIsSavingsOpen(!isSavingsOpen)}
+                      className="py-2 px-3 bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-white hover:bg-slate-100/80 transition cursor-pointer select-none flex flex-wrap items-center justify-between gap-2 border-b border-transparent"
+                      style={{ borderBottomColor: isSavingsOpen ? '#e2e8f0' : 'transparent' }}
+                    >
+                      {/* Left: Tên mục + Huy hiệu tổng số sổ */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base shrink-0">🏛️</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h4 className="text-xs sm:text-[13px] font-black text-slate-900 tracking-tight">
+                            Sổ Tiết Kiệm Theo Ngân Hàng
+                          </h4>
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-blue-100 text-blue-800 border border-blue-200/60 shrink-0">
+                            {savingAssets.length} sổ
                           </span>
-                          <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${levelBadge}`}>
-                            T{a.level}
-                          </span>
-                          <span className="text-xs font-bold text-slate-900 truncate">{a.name}</span>
-                          <span className="text-[10px] text-slate-400 font-normal truncate">({categoryName})</span>
-                        </div>
-
-                        {/* Action buttons */}
-                        <div className="flex items-center space-x-1 shrink-0">
-                          <button
-                            onClick={() => handleEdit(a)}
-                            className="p-1 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition active:scale-95 cursor-pointer"
-                            title="Sửa tài sản"
-                          >
-                            <Pen className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Bạn có chắc muốn xóa tài sản "${a.name}"?`)) {
-                                onRemoveAsset(a.id);
-                              }
-                            }}
-                            className="p-1 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-md transition active:scale-95 cursor-pointer"
-                            title="Xóa tài sản"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
                         </div>
                       </div>
 
-                      {/* Row 2: Bố cục 2 Cột khoa học (Tổng giá trị & Lãi/Đáo hạn) */}
-                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
-                        {/* Cột trái: Tổng tiền & Thông số gốc/kỳ hạn dưới giá trị */}
-                        <div className="min-w-0">
-                          <div className="text-sm font-black text-slate-900 tracking-tight leading-tight">
-                            {formatVND(a.amount, isPrivacyMode)}
+                      {/* Right: Tổng gốc & Tổng lãi hết hạn + Nút mũi tên */}
+                      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0 ml-auto">
+                        <div className="text-right">
+                          <div className="text-[9.5px] text-slate-400 font-medium leading-none">Tổng gốc</div>
+                          <div className="text-xs sm:text-[13px] font-black text-slate-900 mt-0.5 leading-tight">
+                            {formatVND(totalSavingPrincipal, isPrivacyMode)}
                           </div>
-                          {leftSubDetail}
                         </div>
 
-                        {/* Cột phải: Dòng tiền / Lãi & Hạn đáo hạn */}
-                        {rightCol}
-                      </div>
-
-                      {/* Row 3: Footer ngày gửi & ngày cập nhật tinh gọn (nếu có) */}
-                      {(a.startDate || a.updatedAt) && (
-                        <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[9px] text-slate-400">
-                          <span>
-                            {a.startDate && (
-                              <span className="inline-flex items-center gap-1 font-medium text-slate-500">
-                                <Calendar className="w-2.5 h-2.5 text-slate-400" />
-                                {a.type === 'saving' ? `Gửi ngày: ${formatDateVN(a.startDate)}` : `Bắt đầu: ${formatDateVN(a.startDate)}`}
-                              </span>
-                            )}
+                        <div className="text-right pl-2 sm:pl-3 border-l border-slate-200">
+                          <div className="text-[9.5px] text-blue-600 font-bold leading-none">Lãi hết hạn</div>
+                          <div className="text-xs sm:text-[13px] font-black text-blue-600 mt-0.5 leading-tight">
+                            +{formatVND(totalSavingInterest, isPrivacyMode)}
+                          </div>
+                          <span className="text-[9px] text-slate-400 font-normal hidden lg:inline">
+                            (≈ +{formatVND(totalSavingMonthly, isPrivacyMode)}/th)
                           </span>
-                          {a.updatedAt && <span>CN: {a.updatedAt}</span>}
                         </div>
-                      )}
+
+                        <div className="p-1 rounded-md bg-blue-100/70 text-blue-700 hover:bg-blue-200 transition ml-0.5 flex items-center gap-1 text-[11px] font-bold">
+                          <span className="hidden sm:inline text-[10px]">{isSavingsOpen ? 'Thu gọn' : 'Xem chi tiết'}</span>
+                          {isSavingsOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </div>
+                      </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
 
-            {/* 2. DEDICATED DESKTOP VIEW (>= md) - FULL TABLE */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200">
-                    <th className="p-3 text-center w-12">STT</th>
-                    <th className="p-3">Tài Sản & Phân Loại</th>
-                    <th className="p-3 text-center">Tầng</th>
-                    <th className="p-3 text-right">Giá Trị & Hiệu Suất</th>
-                    <th className="p-3 text-right">Dòng Tiền Chi Tiết</th>
-                    <th className="p-3 text-center">Ngày Cập Nhật</th>
-                    <th className="p-3 text-center w-24">Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {/* Danh sách chi tiết toàn bộ các sổ tiết kiệm khi mở */}
+                    {isSavingsOpen && (
+                      <div className="p-1.5 sm:p-2.5 bg-slate-50/50 border-t border-slate-100">
+                        {/* Mobile List (< md) */}
+                        <div className="md:hidden space-y-1.5">
+                          {savingAssets.map((a, idx) => {
+                            const totalInterest =
+                              a.rate && a.termMonths
+                                ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12))
+                                : 0;
+                            const avgMonthly =
+                              a.rate && a.termMonths ? Math.round(totalInterest / a.termMonths) : 0;
+                            const matDate =
+                              formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths);
+
+                            return (
+                              <div
+                                key={a.id}
+                                className="bg-white rounded-md border border-slate-200 p-2 space-y-1 shadow-2xs text-xs"
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    <span className="w-3.5 h-3.5 rounded bg-blue-50 text-blue-700 text-[8.5px] font-black flex items-center justify-center shrink-0">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-900 truncate">{a.name}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-1 shrink-0">
+                                    <button
+                                      onClick={() => handleEdit(a)}
+                                      className="p-1 text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
+                                      title="Sửa"
+                                    >
+                                      <Pen className="w-2.5 h-2.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Bạn có chắc muốn xóa sổ "${a.name}"?`)) {
+                                          onRemoveAsset(a.id);
+                                        }
+                                      }}
+                                      className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                      title="Xóa"
+                                    >
+                                      <Trash2 className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                                  <div>
+                                    <div className="text-xs font-black text-slate-900">
+                                      {formatVND(a.amount, isPrivacyMode)}
+                                    </div>
+                                    <div className="text-[9.5px] text-slate-500 font-medium">
+                                      {a.termMonths ? `${a.termMonths}T` : '—'} • {a.rate ? `${a.rate}%/n` : '—'}
+                                    </div>
+                                  </div>
+
+                                  <div className="text-right shrink-0">
+                                    {totalInterest > 0 && (
+                                      <div className="text-[10.5px] font-black text-blue-600">
+                                        +{formatVND(totalInterest, isPrivacyMode)}
+                                      </div>
+                                    )}
+                                    {avgMonthly > 0 && (
+                                      <div className="text-[9px] text-slate-400">
+                                        ≈ +{formatVND(avgMonthly, isPrivacyMode)}/th
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Date Badges */}
+                                {(a.startDate || matDate) && (
+                                  <div className="pt-0.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1 text-[8.5px] text-slate-500">
+                                    {a.startDate && (
+                                      <span className="inline-flex items-center gap-1">
+                                        <Calendar className="w-2.5 h-2.5 text-slate-400" />
+                                        Gửi: <span className="font-semibold text-slate-700">{formatDateVN(a.startDate)}</span>
+                                      </span>
+                                    )}
+                                    {matDate && (
+                                      <span className="font-bold text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                                        Đáo hạn: {matDate}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Desktop Table (>= md) */}
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 text-[11px]">
+                                <th className="py-1 px-2 text-center w-8">STT</th>
+                                <th className="py-1 px-2">Tên Sổ Tiết Kiệm</th>
+                                <th className="py-1 px-2 text-center">Ngày Gửi</th>
+                                <th className="py-1 px-2 text-center">Kỳ Hạn & Lãi Suất</th>
+                                <th className="py-1 px-2 text-center">Ngày Đáo Hạn</th>
+                                <th className="py-1 px-2 text-right">Tiền Gốc</th>
+                                <th className="py-1 px-2 text-right">Lãi Hết Hạn & Tháng</th>
+                                <th className="py-1 px-2 text-center w-16">Thao Tác</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-slate-700 bg-white text-[11px]">
+                              {savingAssets.map((a, idx) => {
+                                const totalInterest =
+                                  a.rate && a.termMonths
+                                    ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12))
+                                    : 0;
+                                const avgMonthly =
+                                  a.rate && a.termMonths ? Math.round(totalInterest / a.termMonths) : 0;
+                                const matDate =
+                                  formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths);
+
+                                return (
+                                  <tr key={a.id} className="hover:bg-blue-50/40 transition">
+                                    <td className="py-1 px-2 text-center font-bold text-slate-400">{idx + 1}</td>
+                                    <td className="py-1 px-2">
+                                      <div className="font-bold text-slate-900">{a.name}</div>
+                                      {a.note && <div className="text-[9.5px] text-slate-400">{a.note}</div>}
+                                    </td>
+                                    <td className="py-1 px-2 text-center text-slate-600">
+                                      {a.startDate ? (
+                                        <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                                          <Calendar className="w-2.5 h-2.5 text-slate-400" />
+                                          {formatDateVN(a.startDate)}
+                                        </span>
+                                      ) : (
+                                        '—'
+                                      )}
+                                    </td>
+                                    <td className="py-1 px-2 text-center">
+                                      <span className="font-semibold text-slate-800">
+                                        {a.termMonths ? `${a.termMonths} tháng` : '—'}
+                                      </span>
+                                      {a.rate && (
+                                        <span className="text-emerald-700 font-bold ml-1">
+                                          ({a.rate}%/n)
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-1 px-2 text-center">
+                                      {matDate ? (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-bold bg-amber-50 text-amber-900 border border-amber-300 text-[10.5px]">
+                                          <Calendar className="w-2.5 h-2.5 text-amber-700" />
+                                          {matDate}
+                                        </span>
+                                      ) : (
+                                        '—'
+                                      )}
+                                    </td>
+                                    <td className="py-1 px-2 text-right font-black text-slate-900">
+                                      {formatVND(a.amount, isPrivacyMode)}
+                                    </td>
+                                    <td className="py-1 px-2 text-right">
+                                      {totalInterest > 0 ? (
+                                        <div>
+                                          <div className="font-bold text-blue-600">
+                                            +{formatVND(totalInterest, isPrivacyMode)}
+                                          </div>
+                                          <div className="text-[9.5px] text-slate-400">
+                                            ≈ +{formatVND(avgMonthly, isPrivacyMode)}/th
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        '—'
+                                      )}
+                                    </td>
+                                    <td className="py-1 px-2 text-center space-x-1">
+                                      <button
+                                        onClick={() => handleEdit(a)}
+                                        className="p-1 text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer"
+                                        title="Sửa"
+                                      >
+                                        <Pen className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          if (confirm(`Bạn có chắc chắn muốn xóa sổ "${a.name}"?`)) {
+                                            onRemoveAsset(a.id);
+                                          }
+                                        }}
+                                        className="p-1 text-rose-500 hover:bg-rose-50 rounded transition cursor-pointer"
+                                        title="Xóa"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 1.2. PHẦN CÁC LỚP TÀI SẢN KHÁC (CỔ PHIẾU, BĐS, VÀNG, TIỀN MẶT, V.V.) */}
+                {nonSavingAssets.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                      <h4 className="text-xs sm:text-[13px] font-bold text-slate-900 flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Các Danh Mục Tài Sản Khác</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-slate-100 text-slate-700">
+                          {nonSavingAssets.length} mục
+                        </span>
+                      </h4>
+                    </div>
+
+                    {/* Mobile Cards for Non-Saving Assets - Ultra-compact with Start Date */}
+                    <div className="md:hidden space-y-1.5">
+                      {nonSavingAssets.map((a, index) => {
+                        const levelBadge =
+                          a.level === '1'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : a.level === '2'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-rose-100 text-rose-800';
+                        const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
+
+                        let pnlMobile = null;
+                        if (a.costPrice && a.costPrice > 0) {
+                          const diff = a.amount - a.costPrice;
+                          const pct = ((diff / a.costPrice) * 100).toFixed(1);
+                          const isGain = diff >= 0;
+                          pnlMobile = (
+                            <span className={`text-[9.5px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              ({isGain ? '+' : ''}{pct}%)
+                            </span>
+                          );
+                        }
+
+                        let leftSubDetail = null;
+                        if (a.type === 'stock') {
+                          leftSubDetail = (
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
+                              {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} CP</span>}
+                              {a.costPrice && a.quantity && (
+                                <span>• Vốn: {formatVND(Math.round(a.costPrice / a.quantity))}</span>
+                              )}
+                              {pnlMobile}
+                            </div>
+                          );
+                        } else if (a.type === 'gold') {
+                          leftSubDetail = (
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                              {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} chỉ</span>}
+                              {pnlMobile}
+                            </div>
+                          );
+                        } else if (a.type === 'bond' || a.type === 'peer_lending') {
+                          leftSubDetail = (
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5">
+                              {a.termMonths ? `Hạn: ${a.termMonths}T • ` : ''}{a.rate ? `Lãi: ${a.rate}%/n` : ''}
+                            </div>
+                          );
+                        } else if (a.type === 'realestate_accumulate' || a.type === 'realestate_rent') {
+                          leftSubDetail = (
+                            <div className="text-[9.5px] text-slate-500 font-medium mt-0.5">
+                              {a.startDate ? `Sở hữu từ: ${formatDateVN(a.startDate)}` : 'Bất động sản'}
+                            </div>
+                          );
+                        }
+
+                        let rightCol = null;
+                        if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
+                          if (a.cashflow) {
+                            rightCol = (
+                              <div className="text-right shrink-0">
+                                <div className="text-xs font-black text-emerald-600 leading-tight">
+                                  +{formatVND(a.cashflow, isPrivacyMode)}/th
+                                </div>
+                                <div className="text-[9px] text-slate-400 font-medium mt-0.5">Dòng tiền thu</div>
+                              </div>
+                            );
+                          }
+                        } else if (a.type === 'stock' && a.quantity && a.divCash) {
+                          const mDiv = Math.round((a.quantity * a.divCash) / 12);
+                          rightCol = (
+                            <div className="text-right shrink-0">
+                              <div className="text-xs font-black text-emerald-600 leading-tight">
+                                +{formatVND(mDiv, isPrivacyMode)}/th
+                              </div>
+                              <div className="text-[9px] text-slate-400 font-medium mt-0.5">Cổ tức tiền</div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={a.id} className="bg-white hover:bg-slate-50/80 rounded-lg border border-slate-200/90 p-2.5 space-y-1.5 transition shadow-2xs text-xs">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                <span className="w-3.5 h-3.5 rounded bg-slate-100 text-slate-600 text-[8.5px] font-black flex items-center justify-center shrink-0">
+                                  {index + 1}
+                                </span>
+                                <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${levelBadge}`}>
+                                  T{a.level}
+                                </span>
+                                <span className="text-xs font-bold text-slate-900 truncate">{a.name}</span>
+                                <span className="text-[9.5px] text-slate-400 font-normal truncate">({categoryName})</span>
+                              </div>
+
+                              <div className="flex items-center space-x-1 shrink-0">
+                                <button
+                                  onClick={() => handleEdit(a)}
+                                  className="p-1 text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
+                                  title="Sửa"
+                                >
+                                  <Pen className="w-2.5 h-2.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Bạn có chắc muốn xóa tài sản "${a.name}"?`)) {
+                                      onRemoveAsset(a.id);
+                                    }
+                                  }}
+                                  className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                  title="Xóa"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                              <div className="min-w-0">
+                                <div className="text-xs font-black text-slate-900 tracking-tight leading-tight">
+                                  {formatVND(a.amount, isPrivacyMode)}
+                                </div>
+                                {leftSubDetail}
+                              </div>
+                              {rightCol}
+                            </div>
+
+                            {/* Ngày gửi / Ngày bắt đầu / Ngày sở hữu - Gọn gàng thanh nhã */}
+                            {a.startDate && (
+                              <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[9px] text-slate-500">
+                                <span className="inline-flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200/80 font-medium">
+                                  <Calendar className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>Bắt đầu/Mua:</span>
+                                  <span className="font-bold text-slate-800">{formatDateVN(a.startDate)}</span>
+                                </span>
+                                {a.updatedAt && (
+                                  <span className="text-slate-400 text-[8.5px]">Cập nhật: {a.updatedAt}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Desktop Table for Non-Saving Assets - With Start Date Column */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 text-[11px]">
+                            <th className="py-1 px-2.5 text-center w-10">STT</th>
+                            <th className="py-1 px-2.5">Tài Sản & Phân Loại</th>
+                            <th className="py-1 px-2.5 text-center">Tầng</th>
+                            <th className="py-1 px-2.5 text-center">Ngày Bắt Đầu / Mua</th>
+                            <th className="py-1 px-2.5 text-right">Giá Trị & Hiệu Suất</th>
+                            <th className="py-1 px-2.5 text-right">Dòng Tiền Chi Tiết</th>
+                            <th className="py-1 px-2.5 text-center">Ngày Cập Nhật</th>
+                            <th className="py-1 px-2.5 text-center w-20">Thao Tác</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-700 bg-white text-[11px]">
+                          {nonSavingAssets.map((a, index) => {
+                            const levelBadge =
+                              a.level === '1'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : a.level === '2'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-rose-100 text-rose-800';
+                            const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
+
+                            const detailsList: string[] = [];
+                            if (a.type === 'bond' || a.type === 'peer_lending') {
+                              if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
+                              if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
+                            } else if (a.type === 'stock') {
+                              if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} CP`);
+                              if (a.costPrice && a.quantity)
+                                detailsList.push(`Giá vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
+                            } else if (a.type === 'gold') {
+                              if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} chỉ`);
+                            } else if (a.type === 'realestate_rent') {
+                              if (a.cashflow) detailsList.push(`Dòng tiền: +${formatVND(a.cashflow)}/th`);
+                            }
+
+                            let pnlHTML = null;
+                            if (a.costPrice && a.costPrice > 0) {
+                              const diff = a.amount - a.costPrice;
+                              const pct = ((diff / a.costPrice) * 100).toFixed(1);
+                              const isGain = diff >= 0;
+                              pnlHTML = (
+                                <div className={`text-[9.5px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {isGain ? '+' : ''}
+                                  {pct}% ({formatVND(diff)})
+                                </div>
+                              );
+                            }
+
+                            let cashflowDetail = <span className="text-slate-400">—</span>;
+                            if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
+                              if (a.cashflow) {
+                                cashflowDetail = (
+                                  <div>
+                                    <div className="font-bold text-emerald-600">+{formatVND(a.cashflow)}/tháng</div>
+                                    <div className="text-[9.5px] text-slate-400">
+                                      ≈ +{formatVND(Math.round(a.cashflow / 30))}/ngày
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            } else if (a.type === 'stock' && a.quantity && a.divCash) {
+                              const mDiv = Math.round((a.quantity * a.divCash) / 12);
+                              cashflowDetail = (
+                                <div>
+                                  <div className="font-bold text-emerald-600">+{formatVND(mDiv)}/tháng</div>
+                                  <div className="text-[9.5px] text-slate-400">
+                                    Năm: +{formatVND(a.quantity * a.divCash)}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <tr key={a.id} className="hover:bg-slate-50 transition">
+                                <td className="py-1.5 px-2.5 text-center font-bold text-slate-400">{index + 1}</td>
+                                <td className="py-1.5 px-2.5">
+                                  <div className="font-bold text-slate-900">{a.name}</div>
+                                  <div className="text-[9.5px] text-slate-500">{categoryName}</div>
+                                  {detailsList.length > 0 && (
+                                    <div className="text-[9.5px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-1">
+                                      {detailsList.map((item, i) => (
+                                        <React.Fragment key={i}>
+                                          <span>{item}</span>
+                                          {i < detailsList.length - 1 && <span className="text-slate-300">•</span>}
+                                        </React.Fragment>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-center">
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${levelBadge}`}>
+                                    T{a.level}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 px-2.5 text-center">
+                                  {a.startDate ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium bg-slate-50 text-slate-700 border border-slate-200 text-[10.5px]">
+                                      <Calendar className="w-2.5 h-2.5 text-emerald-600" />
+                                      {formatDateVN(a.startDate)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 text-[10px]">—</span>
+                                  )}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-right">
+                                  <div className="font-black text-slate-900">{formatVND(a.amount, isPrivacyMode)}</div>
+                                  {pnlHTML}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-right">{cashflowDetail}</td>
+                                <td className="py-1.5 px-2.5 text-center text-[10px] text-slate-500">{a.updatedAt || 'Mới'}</td>
+                                <td className="py-1.5 px-2.5 text-center space-x-1">
+                                  <button
+                                    onClick={() => handleEdit(a)}
+                                    className="p-1 text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer"
+                                    title="Sửa"
+                                  >
+                                    <Pen className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`Bạn có chắc chắn muốn xóa tài sản "${a.name}"?`)) {
+                                        onRemoveAsset(a.id);
+                                      }
+                                    }}
+                                    className="p-1 text-rose-500 hover:bg-rose-50 rounded transition cursor-pointer"
+                                    title="Xóa"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {db.assets.length === 0 && (
+                  <div className="p-3 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                    Chưa có tài sản nào. Vui lòng thêm ở khung trên.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* CHẾ ĐỘ 2: DANH SÁCH TOÀN BỘ PHẲNG (FLAT LIST) - Compact */}
+            {viewMode === 'flat' && (
+              <div className="space-y-2">
+                {/* 1. DEDICATED MOBILE VIEW (< md) - CLEAN COMPACT CARD LIST */}
+                <div className="md:hidden space-y-1.5">
                   {sortedAssets.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-6 text-center text-slate-400">
-                        Chưa có tài sản nào. Vui lòng thêm ở khung trên.
-                      </td>
-                    </tr>
+                    <div className="p-3 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                      Chưa có tài sản nào. Vui lòng thêm ở khung trên.
+                    </div>
                   ) : (
                     sortedAssets.map((a, index) => {
                       const levelBadge =
@@ -1377,150 +1799,340 @@ export const TabPyramid: React.FC<TabPyramidProps> = ({
                           : 'bg-rose-100 text-rose-800';
                       const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
 
-                      const detailsList: string[] = [];
-                      if (a.type === 'saving') {
-                        if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths} tháng`);
-                        if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
-                      } else if (a.type === 'bond' || a.type === 'peer_lending') {
-                        if (a.startDate) detailsList.push(`Bắt đầu: ${formatDateVN(a.startDate)}`);
-                        if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
-                        if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
-                      } else if (a.type === 'stock') {
-                        if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} CP`);
-                        if (a.costPrice && a.quantity)
-                          detailsList.push(`Giá vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
-                        if (a.startDate) detailsList.push(`Mua từ: ${formatDateVN(a.startDate)}`);
-                      } else if (a.type === 'gold') {
-                        if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} chỉ`);
-                        if (a.startDate) detailsList.push(`Mua từ: ${formatDateVN(a.startDate)}`);
-                      } else if (a.type === 'realestate_rent') {
-                        if (a.cashflow) detailsList.push(`Dòng tiền: +${formatVND(a.cashflow)}/tháng`);
-                        if (a.startDate) detailsList.push(`Sở hữu từ: ${formatDateVN(a.startDate)}`);
-                      } else if (a.type === 'realestate_accumulate') {
-                        if (a.startDate) detailsList.push(`Sở hữu từ: ${formatDateVN(a.startDate)}`);
-                      } else if (a.startDate) {
-                        detailsList.push(`Ngày: ${formatDateVN(a.startDate)}`);
-                      }
-
-                      let pnlHTML = null;
+                      let pnlMobile = null;
                       if (a.costPrice && a.costPrice > 0) {
                         const diff = a.amount - a.costPrice;
                         const pct = ((diff / a.costPrice) * 100).toFixed(1);
                         const isGain = diff >= 0;
-                        pnlHTML = (
-                          <div className={`text-[10px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {isGain ? '+' : ''}
-                            {pct}% ({formatVND(diff)})
+                        pnlMobile = (
+                          <span className={`text-[9.5px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            ({isGain ? '+' : ''}{pct}%)
+                          </span>
+                        );
+                      }
+
+                      // Sub-details under total amount (Left Column)
+                      let leftSubDetail = null;
+                      if (a.type === 'saving') {
+                        leftSubDetail = (
+                          <div className="text-[9.5px] text-slate-500 font-semibold mt-0.5">
+                            {a.termMonths ? `${a.termMonths}T` : '—'} • {a.rate ? `${a.rate}%/n` : '—'}
+                          </div>
+                        );
+                      } else if (a.type === 'stock') {
+                        leftSubDetail = (
+                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1 flex-wrap">
+                            {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} CP</span>}
+                            {a.costPrice && a.quantity && (
+                              <span>• Vốn: {formatVND(Math.round(a.costPrice / a.quantity))}</span>
+                            )}
+                            {pnlMobile}
+                          </div>
+                        );
+                      } else if (a.type === 'gold') {
+                        leftSubDetail = (
+                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                            {a.quantity && <span className="font-semibold text-slate-700">{formatNumberString(a.quantity)} chỉ</span>}
+                            {pnlMobile}
+                          </div>
+                        );
+                      } else if (a.type === 'bond' || a.type === 'peer_lending') {
+                        leftSubDetail = (
+                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5">
+                            {a.termMonths ? `Hạn: ${a.termMonths}T • ` : ''}{a.rate ? `Lãi: ${a.rate}%/n` : ''}
+                          </div>
+                        );
+                      } else if (a.type === 'realestate_accumulate' || a.type === 'realestate_rent') {
+                        leftSubDetail = (
+                          <div className="text-[9.5px] text-slate-500 font-medium mt-0.5">
+                            {a.startDate ? `Sở hữu từ: ${formatDateVN(a.startDate)}` : 'Bất động sản'}
                           </div>
                         );
                       }
 
-                      let cashflowDetail = <span className="text-slate-400">—</span>;
-                      if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
-                        if (a.cashflow) {
-                          cashflowDetail = (
-                            <div>
-                              <div className="font-bold text-emerald-600">+{formatVND(a.cashflow)} / tháng</div>
-                              <div className="text-[10px] text-slate-500">
-                                ≈ +{formatVND(Math.round(a.cashflow / 30))} / ngày
+                      // Right Column (Lãi / Dòng tiền / Ngày đáo hạn)
+                      let rightCol = null;
+                      if (a.type === 'saving') {
+                        const totalInterest = a.rate && a.termMonths ? Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12)) : 0;
+                        const matDate = formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths);
+                        rightCol = (
+                          <div className="text-right shrink-0">
+                            {totalInterest > 0 && (
+                              <div className="text-[10.5px] font-black text-blue-600 leading-tight">
+                                +{formatVND(totalInterest, isPrivacyMode)}
                               </div>
+                            )}
+                            {matDate && (
+                              <div className="text-[9.5px] text-slate-600 font-medium mt-0.5">
+                                Đáo hạn: <span className="font-bold text-slate-800">{matDate}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      } else if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
+                        if (a.cashflow) {
+                          rightCol = (
+                            <div className="text-right shrink-0">
+                              <div className="text-[10.5px] font-black text-emerald-600 leading-tight">
+                                +{formatVND(a.cashflow, isPrivacyMode)}/th
+                              </div>
+                              <div className="text-[9px] text-slate-400 font-medium mt-0.5">Dòng tiền thu</div>
                             </div>
                           );
                         }
                       } else if (a.type === 'stock' && a.quantity && a.divCash) {
                         const mDiv = Math.round((a.quantity * a.divCash) / 12);
-                        cashflowDetail = (
-                          <div>
-                            <div className="font-bold text-emerald-600">+{formatVND(mDiv)} / tháng</div>
-                            <div className="text-[10px] text-slate-500">
-                              Năm: +{formatVND(a.quantity * a.divCash)}
+                        rightCol = (
+                          <div className="text-right shrink-0">
+                            <div className="text-[10.5px] font-black text-emerald-600 leading-tight">
+                              +{formatVND(mDiv, isPrivacyMode)}/th
                             </div>
-                          </div>
-                        );
-                      } else if (a.type === 'saving' && a.rate && a.termMonths) {
-                        const totalInterest = Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12));
-                        const avgMonthly = Math.round(totalInterest / a.termMonths);
-                        cashflowDetail = (
-                          <div>
-                            <div className="font-semibold text-blue-600">Đáo hạn: +{formatVND(totalInterest)}</div>
-                            <div className="text-[10px] text-slate-500">Quy đổi: +{formatVND(avgMonthly)}/tháng</div>
+                            <div className="text-[9px] text-slate-400 font-medium mt-0.5">Cổ tức tiền</div>
                           </div>
                         );
                       }
 
                       return (
-                        <tr key={a.id} className="hover:bg-slate-50/80 transition">
-                          <td className="p-3 text-center font-bold text-slate-400">{index + 1}</td>
-                          <td className="p-3">
-                            <div className="font-bold text-slate-900 text-xs">{a.name}</div>
-                            <div className="text-[10px] text-slate-500 font-medium mt-0.5">{categoryName}</div>
-                            {a.type === 'saving' && (
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                        <div key={a.id} className="bg-white hover:bg-slate-50/80 rounded-lg border border-slate-200/90 p-2.5 space-y-1.5 transition shadow-2xs text-xs">
+                          {/* Row 1: STT, Tầng, Tên tài sản, Phân loại & Nút Thao tác */}
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span className="w-3.5 h-3.5 rounded bg-slate-100 text-slate-600 text-[8.5px] font-black flex items-center justify-center shrink-0">
+                                {index + 1}
+                              </span>
+                              <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${levelBadge}`}>
+                                T{a.level}
+                              </span>
+                              <span className="text-xs font-bold text-slate-900 truncate">{a.name}</span>
+                              <span className="text-[9.5px] text-slate-400 font-normal truncate">({categoryName})</span>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex items-center space-x-1 shrink-0">
+                              <button
+                                onClick={() => handleEdit(a)}
+                                className="p-1 text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
+                                title="Sửa tài sản"
+                              >
+                                <Pen className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Bạn có chắc muốn xóa tài sản "${a.name}"?`)) {
+                                    onRemoveAsset(a.id);
+                                  }
+                                }}
+                                className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                title="Xóa tài sản"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Row 2: Bố cục 2 Cột khoa học (Tổng giá trị & Lãi/Đáo hạn) */}
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                            <div className="min-w-0">
+                              <div className="text-xs font-black text-slate-900 tracking-tight leading-tight">
+                                {formatVND(a.amount, isPrivacyMode)}
+                              </div>
+                              {leftSubDetail}
+                            </div>
+                            {rightCol}
+                          </div>
+
+                          {/* Row 3: Footer ngày gửi & ngày cập nhật tinh gọn (nếu có) */}
+                          {(a.startDate || a.updatedAt) && (
+                            <div className="pt-0.5 border-t border-slate-100 flex items-center justify-between text-[8.5px] text-slate-400">
+                              <span>
                                 {a.startDate && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold bg-blue-50 text-blue-800 border border-blue-200">
-                                    <Calendar className="w-3 h-3 text-blue-600" />
-                                    <span>Gửi từ:</span>
-                                    <span className="text-blue-950 font-bold">{formatDateVN(a.startDate)}</span>
+                                  <span className="inline-flex items-center gap-1 font-medium text-slate-500">
+                                    <Calendar className="w-2.5 h-2.5 text-slate-400" />
+                                    {a.type === 'saving' ? `Gửi: ${formatDateVN(a.startDate)}` : `Bắt đầu: ${formatDateVN(a.startDate)}`}
                                   </span>
                                 )}
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold bg-amber-50 text-amber-900 border border-amber-300">
-                                  <Calendar className="w-3 h-3 text-amber-700" />
-                                  <span>Ngày đáo hạn:</span>
-                                  <span className="text-amber-950 font-black">
-                                    {formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths) || 'Chưa đặt'}
-                                  </span>
-                                </span>
-                              </div>
-                            )}
-                            {detailsList.length > 0 && (
-                              <div className="text-[10px] text-slate-600 mt-1 flex flex-wrap items-center gap-1.5">
-                                {detailsList.map((item, i) => (
-                                  <React.Fragment key={i}>
-                                    <span>{item}</span>
-                                    {i < detailsList.length - 1 && <span className="text-slate-300">•</span>}
-                                  </React.Fragment>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${levelBadge}`}>
-                              Tầng {a.level}
-                            </span>
-                          </td>
-                          <td className="p-3 text-right">
-                            <div className="font-black text-slate-900">{formatVND(a.amount, isPrivacyMode)}</div>
-                            {pnlHTML}
-                          </td>
-                          <td className="p-3 text-right">{cashflowDetail}</td>
-                          <td className="p-3 text-center text-[11px] text-slate-500">{a.updatedAt || 'Mới'}</td>
-                          <td className="p-3 text-center space-x-1">
-                            <button
-                              onClick={() => handleEdit(a)}
-                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                              title="Sửa"
-                            >
-                              <Pen className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Bạn có chắc chắn muốn xóa tài sản "${a.name}"?`)) {
-                                  onRemoveAsset(a.id);
-                                }
-                              }}
-                              className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title="Xóa"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
+                              </span>
+                              {a.updatedAt && <span>CN: {a.updatedAt}</span>}
+                            </div>
+                          )}
+                        </div>
                       );
                     })
                   )}
-                </tbody>
-              </table>
-            </div>
+                </div>
+
+                {/* 2. DEDICATED DESKTOP VIEW (>= md) - FULL COMPACT TABLE */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 text-[11px]">
+                        <th className="py-1 px-2.5 text-center w-10">STT</th>
+                        <th className="py-1 px-2.5">Tài Sản & Phân Loại</th>
+                        <th className="py-1 px-2.5 text-center">Tầng</th>
+                        <th className="py-1 px-2.5 text-center">Ngày Bắt Đầu / Gửi</th>
+                        <th className="py-1 px-2.5 text-right">Giá Trị & Hiệu Suất</th>
+                        <th className="py-1 px-2.5 text-right">Dòng Tiền Chi Tiết</th>
+                        <th className="py-1 px-2.5 text-center">Ngày Cập Nhật</th>
+                        <th className="py-1 px-2.5 text-center w-20">Thao Tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700 bg-white text-[11px]">
+                      {sortedAssets.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="p-4 text-center text-slate-400">
+                            Chưa có tài sản nào. Vui lòng thêm ở khung trên.
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedAssets.map((a, index) => {
+                          const levelBadge =
+                            a.level === '1'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : a.level === '2'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-rose-100 text-rose-800';
+                          const categoryName = assetTypeLabels[a.type] || 'Tài Sản Khác';
+
+                          const detailsList: string[] = [];
+                          if (a.type === 'saving') {
+                            if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
+                            if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
+                          } else if (a.type === 'bond' || a.type === 'peer_lending') {
+                            if (a.termMonths) detailsList.push(`Kỳ hạn: ${a.termMonths}T`);
+                            if (a.rate) detailsList.push(`Lãi: ${a.rate}%/năm`);
+                          } else if (a.type === 'stock') {
+                            if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} CP`);
+                            if (a.costPrice && a.quantity)
+                              detailsList.push(`Giá vốn: ${formatVND(Math.round(a.costPrice / a.quantity))}`);
+                          } else if (a.type === 'gold') {
+                            if (a.quantity) detailsList.push(`SL: ${formatNumberString(a.quantity)} chỉ`);
+                          } else if (a.type === 'realestate_rent') {
+                            if (a.cashflow) detailsList.push(`Dòng tiền: +${formatVND(a.cashflow)}/th`);
+                          }
+
+                          let pnlHTML = null;
+                          if (a.costPrice && a.costPrice > 0) {
+                            const diff = a.amount - a.costPrice;
+                            const pct = ((diff / a.costPrice) * 100).toFixed(1);
+                            const isGain = diff >= 0;
+                            pnlHTML = (
+                              <div className={`text-[9.5px] font-bold ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {isGain ? '+' : ''}
+                                {pct}% ({formatVND(diff)})
+                              </div>
+                            );
+                          }
+
+                          let cashflowDetail = <span className="text-slate-400">—</span>;
+                          if (a.type === 'realestate_rent' || a.type === 'private_equity' || a.type === 'peer_lending') {
+                            if (a.cashflow) {
+                              cashflowDetail = (
+                                <div>
+                                  <div className="font-bold text-emerald-600">+{formatVND(a.cashflow)}/tháng</div>
+                                  <div className="text-[9.5px] text-slate-400">
+                                    ≈ +{formatVND(Math.round(a.cashflow / 30))}/ngày
+                                  </div>
+                                </div>
+                              );
+                            }
+                          } else if (a.type === 'stock' && a.quantity && a.divCash) {
+                            const mDiv = Math.round((a.quantity * a.divCash) / 12);
+                            cashflowDetail = (
+                              <div>
+                                <div className="font-bold text-emerald-600">+{formatVND(mDiv)}/tháng</div>
+                                <div className="text-[9.5px] text-slate-400">
+                                  Năm: +{formatVND(a.quantity * a.divCash)}
+                                </div>
+                              </div>
+                            );
+                          } else if (a.type === 'saving' && a.rate && a.termMonths) {
+                            const totalInterest = Math.round(a.amount * (a.rate / 100) * (a.termMonths / 12));
+                            const avgMonthly = Math.round(totalInterest / a.termMonths);
+                            cashflowDetail = (
+                              <div>
+                                <div className="font-semibold text-blue-600">Đáo hạn: +{formatVND(totalInterest)}</div>
+                                <div className="text-[9.5px] text-slate-400">Quy đổi: +{formatVND(avgMonthly)}/th</div>
+                              </div>
+                            );
+                          }
+
+                          const matDate = a.type === 'saving' ? (formatDateVN(a.maturityDate) || calculateMaturityDate(a.startDate, a.termMonths)) : null;
+
+                          return (
+                            <tr key={a.id} className="hover:bg-slate-50 transition">
+                              <td className="py-1.5 px-2.5 text-center font-bold text-slate-400">{index + 1}</td>
+                              <td className="py-1.5 px-2.5">
+                                <div className="font-bold text-slate-900">{a.name}</div>
+                                <div className="text-[9.5px] text-slate-500">{categoryName}</div>
+                                {matDate && (
+                                  <div className="mt-0.5">
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-bold bg-amber-50 text-amber-900 border border-amber-300 text-[9.5px]">
+                                      <Calendar className="w-2.5 h-2.5 text-amber-700" />
+                                      <span>Đáo hạn: {matDate}</span>
+                                    </span>
+                                  </div>
+                                )}
+                                {detailsList.length > 0 && (
+                                  <div className="text-[9.5px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-1">
+                                    {detailsList.map((item, i) => (
+                                      <React.Fragment key={i}>
+                                        <span>{item}</span>
+                                        {i < detailsList.length - 1 && <span className="text-slate-300">•</span>}
+                                      </React.Fragment>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2.5 text-center">
+                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${levelBadge}`}>
+                                  T{a.level}
+                                </span>
+                              </td>
+                              <td className="py-1.5 px-2.5 text-center">
+                                {a.startDate ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium bg-slate-50 text-slate-700 border border-slate-200 text-[10.5px]">
+                                    <Calendar className="w-2.5 h-2.5 text-blue-600" />
+                                    {formatDateVN(a.startDate)}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">—</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2.5 text-right">
+                                <div className="font-black text-slate-900">{formatVND(a.amount, isPrivacyMode)}</div>
+                                {pnlHTML}
+                              </td>
+                              <td className="py-1.5 px-2.5 text-right">{cashflowDetail}</td>
+                              <td className="py-1.5 px-2.5 text-center text-[10px] text-slate-500">{a.updatedAt || 'Mới'}</td>
+                              <td className="py-1.5 px-2.5 text-center space-x-1">
+                                <button
+                                  onClick={() => handleEdit(a)}
+                                  className="p-1 text-amber-600 hover:bg-amber-50 rounded transition cursor-pointer"
+                                  title="Sửa"
+                                >
+                                  <Pen className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Bạn có chắc chắn muốn xóa tài sản "${a.name}"?`)) {
+                                      onRemoveAsset(a.id);
+                                    }
+                                  }}
+                                  className="p-1 text-rose-500 hover:bg-rose-50 rounded transition cursor-pointer"
+                                  title="Xóa"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

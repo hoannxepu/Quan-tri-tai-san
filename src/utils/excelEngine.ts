@@ -1,6 +1,7 @@
 import XLSX from 'xlsx-js-style';
 import ExcelJS from 'exceljs';
 import { Asset, AssetLevel, AssetType, Debt, DebtCategory, Goal, GoalGroup, DatabaseState } from '../types';
+import { normalizeDateStr, formatDateVN } from './format';
 
 export interface ParsedAssetItem {
   id?: number;
@@ -262,52 +263,8 @@ export const parseQuantityValue = (val: any): number => {
 
 // Safe date string parser - output standardized YYYY-MM-DD
 export const parseDateValue = (val: any): string => {
-  if (!val) return '';
-  
-  // Excel Serial Number (e.g. 45200)
-  if (typeof val === 'number') {
-    const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
-    if (!isNaN(dateObj.getTime())) {
-      const y = dateObj.getUTCFullYear();
-      const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-      const d = String(dateObj.getUTCDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-  }
-
-  const s = String(val).trim();
-  if (!s) return '';
-
-  // Case 1: DD/MM/YYYY or DD-MM-YYYY or D/M/YYYY
-  const ddmmyyyy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
-  if (ddmmyyyy) {
-    const day = ddmmyyyy[1].padStart(2, '0');
-    const month = ddmmyyyy[2].padStart(2, '0');
-    const year = ddmmyyyy[3];
-    return `${year}-${month}-${day}`;
-  }
-
-  // Case 2: YYYY-MM-DD or YYYY/MM/DD
-  const yyyymmdd = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
-  if (yyyymmdd) {
-    const year = yyyymmdd[1];
-    const month = yyyymmdd[2].padStart(2, '0');
-    const day = yyyymmdd[3].padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  // Case 3: Standard JS Date parse fallback
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    if (y >= 1900 && y <= 2100) {
-      return `${y}-${m}-${day}`;
-    }
-  }
-
-  return s;
+  if (val === undefined || val === null || val === '') return '';
+  return normalizeDateStr(val);
 };
 
 // Check if a row is a header row
@@ -460,8 +417,11 @@ const buildSheet1 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
       cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
       cell.border = BORDER_THIN;
 
-      if (cIdx === 1 || cIdx === 2 || cIdx === 9 || cIdx === 11) {
+      if (cIdx === 1 || cIdx === 2) {
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else if (cIdx === 9 || cIdx === 11) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.numFmt = '@';
       } else if (cIdx === 6 || cIdx === 7 || cIdx === 10 || cIdx === 12 || cIdx === 13 || cIdx === 14) {
         cell.alignment = { vertical: 'middle', horizontal: 'right' };
         if (typeof cell.value === 'number') {
@@ -620,8 +580,11 @@ const buildSheet2 = (ws: ExcelJS.Worksheet, rows: any[][]) => {
       cell.font = { name: 'Arial', size: 10, color: { argb: 'FF334155' } };
       cell.border = BORDER_THIN;
 
-      if (cIdx === 1 || cIdx === 2 || cIdx === 5 || cIdx === 13 || cIdx === 16 || cIdx === 17) {
+      if (cIdx === 1 || cIdx === 2 || cIdx === 16 || cIdx === 17) {
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else if (cIdx === 5 || cIdx === 13) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.numFmt = '@';
       } else if (cIdx === 6 || cIdx === 7 || cIdx === 8 || cIdx === 10 || cIdx === 12 || cIdx === 15) {
         cell.alignment = { vertical: 'middle', horizontal: 'right' };
         if (typeof cell.value === 'number') {
@@ -921,9 +884,9 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
       item.amount || 0,
       item.costPrice || item.amount || 0,
       item.rate ? item.rate / 100 : 0,
-      item.startDate || '',
+      item.startDate ? formatDateVN(item.startDate) : '',
       item.termMonths || 0,
-      item.maturityDate || '',
+      item.maturityDate ? formatDateVN(item.maturityDate) : '',
       item.quantity || 1,
       item.cashflow || 0,
       item.divCash || 0,
@@ -987,7 +950,7 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
       idx + 1,
       getDebtCategoryLabel(item.category),
       item.name,
-      item.startDate || '',
+      item.startDate ? formatDateVN(item.startDate) : '',
       item.amount || 0,
       item.paidPrincipal || 0,
       item.termMonths || 0,
@@ -995,7 +958,7 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
       item.monthlyBefore || 0,
       item.promoRate ? item.promoRate / 100 : 0,
       item.promoMonths || 0,
-      item.promoEndDate || '',
+      item.promoEndDate ? formatDateVN(item.promoEndDate) : '',
       item.normalRate ? item.normalRate / 100 : 0,
       item.monthlyAfter || item.monthlyBefore || 0,
       item.day || 1,
@@ -1617,7 +1580,7 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
 // =========================================================================
 export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> => {
   const arrayBuffer = await file.arrayBuffer();
-  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
 
   const result: ParsedFullDatabase = {
     assets: [],

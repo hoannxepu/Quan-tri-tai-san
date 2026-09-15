@@ -19,10 +19,136 @@ export function formatVND(val: number | undefined | null, isPrivacyMode: boolean
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
 }
 
-export function formatDateVN(dateStr?: string): string {
+// Helper chuyển đổi số Serial Date của Excel (ví dụ 45847 -> 09/07/2025)
+export function excelSerialToDate(serial: number): Date {
+  // Excel base: 1899-12-30 (due to 1900 leap year bug in Lotus/Excel)
+  const utcDays = serial - 25569;
+  const utcValue = utcDays * 86400 * 1000;
+  const dateInfo = new Date(utcValue);
+  const fractionalDay = serial - Math.floor(serial) + 0.0000001;
+  let totalSeconds = Math.floor(86400 * fractionalDay);
+  const seconds = totalSeconds % 60;
+  totalSeconds = Math.floor(totalSeconds / 60);
+  const minutes = totalSeconds % 60;
+  const hours = Math.floor(totalSeconds / 60);
+
+  return new Date(
+    dateInfo.getUTCFullYear(),
+    dateInfo.getUTCMonth(),
+    dateInfo.getUTCDate(),
+    hours,
+    minutes,
+    seconds
+  );
+}
+
+// Hàm chuẩn hóa chuỗi ngày tháng, nhận diện và sửa lỗi số Serial Date của Excel
+export function normalizeDateStr(val: any): string {
+  if (val === undefined || val === null || val === '') return '';
+  
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // Nếu là số nguyên hoặc chuỗi số thuần túy dạng Excel serial (từ 30000 đến 80000)
+  if (typeof val === 'number' && val >= 25000 && val <= 90000) {
+    const dObj = excelSerialToDate(val);
+    const y = dObj.getFullYear();
+    const m = String(dObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  const str = String(val).trim();
+  if (!str) return '';
+
+  // Kiểm tra chuỗi số thuần túy (e.g. "45847" hoặc "46396")
+  if (/^\d{5}$/.test(str)) {
+    const num = parseInt(str, 10);
+    if (num >= 25000 && num <= 90000) {
+      const dObj = excelSerialToDate(num);
+      const y = dObj.getFullYear();
+      const m = String(dObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  // Kiểm tra lỗi bị parse thành 1/1/45847 hoặc 01/01/45847 hoặc 45847-01-01
+  const corruptedExcel = str.match(/^(?:0?1[/-]0?1[/-]|)(\d{5})(?:[/-]0?1[/-]0?1)?$/);
+  if (corruptedExcel && corruptedExcel[1]) {
+    const num = parseInt(corruptedExcel[1], 10);
+    if (num >= 25000 && num <= 90000) {
+      const dObj = excelSerialToDate(num);
+      const y = dObj.getFullYear();
+      const m = String(dObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  // DD/MM/YYYY hoặc D/M/YYYY hoặc DD-MM-YYYY
+  const ddmmyyyy = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4,5})$/);
+  if (ddmmyyyy) {
+    const day = ddmmyyyy[1].padStart(2, '0');
+    const month = ddmmyyyy[2].padStart(2, '0');
+    const yearNum = parseInt(ddmmyyyy[3], 10);
+    if (yearNum >= 25000 && yearNum <= 90000) {
+      const dObj = excelSerialToDate(yearNum);
+      const y = dObj.getFullYear();
+      const m = String(dObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return `${yearNum}-${month}-${day}`;
+  }
+
+  // YYYY-MM-DD
+  const yyyymmdd = str.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
+  if (yyyymmdd) {
+    const y = yyyymmdd[1];
+    const m = yyyymmdd[2].padStart(2, '0');
+    const d = yyyymmdd[3].padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    if (y >= 25000 && y <= 90000) {
+      const dObj = excelSerialToDate(y);
+      const dy = dObj.getFullYear();
+      const dm = String(dObj.getMonth() + 1).padStart(2, '0');
+      const dd = String(dObj.getDate()).padStart(2, '0');
+      return `${dy}-${dm}-${dd}`;
+    }
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return str;
+}
+
+export function formatDateVN(dateStr?: string | Date | number): string {
   if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
+  const normalized = normalizeDateStr(dateStr);
+  if (!normalized) return '';
+  
+  const parts = normalized.split('-');
+  if (parts.length === 3) {
+    const y = parts[0];
+    const m = parts[1].padStart(2, '0');
+    const d = parts[2].padStart(2, '0');
+    return `${d}/${m}/${y}`;
+  }
+
+  const d = new Date(normalized);
+  if (isNaN(d.getTime())) return String(dateStr);
   return d.toLocaleDateString('vi-VN');
 }
 
@@ -69,8 +195,11 @@ export function getDbTimestamp(d?: DatabaseState | null): number {
 // Hàm tính ngày đáo hạn theo chuẩn tháng dương lịch ngân hàng (không bị trôi ngày do độ dài tháng)
 export function getCalendarMaturityDateObj(startDateStr?: string, months?: number): { year: number; month: number; day: number } | null {
   if (!startDateStr || !months) return null;
-  // Parse YYYY-MM-DD or valid date string
-  const parts = startDateStr.split('-');
+  const normalized = normalizeDateStr(startDateStr);
+  if (!normalized) return null;
+
+  // Parse YYYY-MM-DD
+  const parts = normalized.split('-');
   let startYear = 0;
   let startMonth = 0;
   let startDay = 0;
@@ -80,7 +209,7 @@ export function getCalendarMaturityDateObj(startDateStr?: string, months?: numbe
     startMonth = parseInt(parts[1], 10); // 1-12
     startDay = parseInt(parts[2], 10);
   } else {
-    const d = new Date(startDateStr);
+    const d = new Date(normalized);
     if (isNaN(d.getTime())) return null;
     startYear = d.getFullYear();
     startMonth = d.getMonth() + 1;
