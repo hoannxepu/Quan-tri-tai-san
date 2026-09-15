@@ -172,6 +172,18 @@ export const getGoalGroupLabel = (group: GoalGroup): string => {
   }
 };
 
+// Parse ID helper: extracts numeric ID from "TS-1710123456", "NO-102", "1710123456", etc.
+export const parseIdValue = (val: any): number | undefined => {
+  if (val === undefined || val === null) return undefined;
+  if (typeof val === 'number') return isNaN(val) || val <= 0 ? undefined : Math.round(val);
+  const s = String(val).trim();
+  if (!s) return undefined;
+  const digitsOnly = s.replace(/[^0-9]/g, '');
+  if (!digitsOnly) return undefined;
+  const num = parseInt(digitsOnly, 10);
+  return isNaN(num) || num <= 0 ? undefined : num;
+};
+
 // Safe number parser for Vietnamese currency and number formats (e.g. "500.000.000", "500,000,000", "500 tr", "5 tỷ")
 export const parseAmountValue = (val: any): number => {
   if (typeof val === 'number') return isNaN(val) ? 0 : Math.round(val);
@@ -247,24 +259,93 @@ export const parseQuantityValue = (val: any): number => {
   return parseAmountValue(s);
 };
 
-// Safe date string parser
+// Safe date string parser - output standardized YYYY-MM-DD
 export const parseDateValue = (val: any): string => {
   if (!val) return '';
+  
+  // Excel Serial Number (e.g. 45200)
   if (typeof val === 'number') {
+    // Excel base date (Dec 30 1899)
     const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
     if (!isNaN(dateObj.getTime())) {
-      return dateObj.toISOString().split('T')[0];
+      const y = dateObj.getUTCFullYear();
+      const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
   }
+
   const s = String(val).trim();
-  const ddmmyyyy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!s) return '';
+
+  // Case 1: DD/MM/YYYY or DD-MM-YYYY or D/M/YYYY
+  const ddmmyyyy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
   if (ddmmyyyy) {
     const day = ddmmyyyy[1].padStart(2, '0');
     const month = ddmmyyyy[2].padStart(2, '0');
     const year = ddmmyyyy[3];
     return `${year}-${month}-${day}`;
   }
+
+  // Case 2: YYYY-MM-DD or YYYY/MM/DD
+  const yyyymmdd = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
+  if (yyyymmdd) {
+    const year = yyyymmdd[1];
+    const month = yyyymmdd[2].padStart(2, '0');
+    const day = yyyymmdd[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // Case 3: Standard JS Date parse fallback
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    if (y >= 1900 && y <= 2100) {
+      return `${y}-${m}-${day}`;
+    }
+  }
+
   return s;
+};
+
+// Check if a row is a header row
+const isHeaderRow = (row: any[]): boolean => {
+  const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
+  return (
+    rowStr.includes('tầng') ||
+    rowStr.includes('tháp') ||
+    rowStr.includes('giá trị') ||
+    rowStr.includes('tên tài sản') ||
+    rowStr.includes('danh mục') ||
+    rowStr.includes('mã phân loại') ||
+    rowStr.includes('mã id') ||
+    rowStr.includes('hướng dẫn') ||
+    rowStr.includes('chủ tài khoản') ||
+    rowStr.includes('stt') ||
+    rowStr.includes('phân loại khoản nợ') ||
+    rowStr.includes('nhóm mục tiêu') ||
+    rowStr.includes('tên khoản nợ') ||
+    rowStr.includes('tên mục tiêu') ||
+    rowStr.includes('[phần 1') ||
+    rowStr.includes('[phần 2')
+  );
+};
+
+// Check if a row is a summary / total row
+const isSummaryRow = (row: any[]): boolean => {
+  const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
+  return (
+    rowStr.includes('tổng cộng') ||
+    rowStr.includes('tong cong') ||
+    rowStr.includes('tổng nợ') ||
+    rowStr.includes('tong no') ||
+    rowStr.includes('tổng giá trị') ||
+    rowStr.includes('tổng số') ||
+    rowStr.includes('đã tính toán tự động') ||
+    rowStr.includes('tính toán tự động')
+  );
 };
 
 // ==========================================
@@ -273,14 +354,14 @@ export const parseDateValue = (val: any): string => {
 export const downloadStandardExcelTemplate = () => {
   const wb = XLSX.utils.book_new();
 
-  // ----------------------------------------
-  // SHEET 1: 1_Tai_San (Tháp Tài Sản 3 Tầng)
-  // ----------------------------------------
+  // SHEET 1: 1_Tai_San
   const ws1Data: any[][] = [
     ['DANH MỤC THÁP TÀI SẢN 3 TẦNG (FILE MẪU CHUẨN ĐẦY ĐỦ THÔNG TIN)'],
-    ['* Hướng dẫn: Điền thông tin chi tiết tài sản vào các cột. Định dạng tiền phân cách (.), lãi suất (%), ngày tháng (YYYY-MM-DD hoặc DD/MM/YYYY).'],
+    ['* Hướng dẫn: Giữ nguyên Mã ID khi sửa dòng cũ. Để trống Mã ID khi thêm mới. Ngày tháng định dạng YYYY-MM-DD hoặc DD/MM/YYYY.'],
     [],
     [
+      'Mã ID',
+      'STT',
       'Tầng Tháp',
       'Mã Phân Loại',
       'Tên Danh Mục / Tài Sản',
@@ -295,58 +376,48 @@ export const downloadStandardExcelTemplate = () => {
       'Cổ Tức Tiền Mặt (VNĐ/CP/năm)',
       'Ghi Chú / Kỳ Vọng',
     ],
-    ['Bảo vệ', 'Tiền gửi tiết kiệm', 'Sổ tiết kiệm Vietcombank 12T', 300000000, 300000000, 0.055, '2025-06-15', 12, '2026-06-15', 1, 0, 0, 'Lãi suất 5.5%/năm, kỳ hạn 12 tháng'],
-    ['Bảo vệ', 'Tiền mặt', 'Tài khoản Techcombank (Quỹ khẩn cấp)', 50000000, 50000000, 0, '2025-01-01', 0, '', 1, 0, 0, 'Dự phòng sinh hoạt 6 tháng'],
-    ['Bảo vệ', 'Vàng', 'Vàng miếng SJC 9999', 170000000, 150000000, 0.12, '2024-08-10', 0, '', 2, 0, 0, '2 lượng vàng tích trữ phòng vệ lạm phát'],
-    ['Tăng trưởng', 'Cổ phiếu', 'Cổ phiếu FPT Technology', 650000000, 500000000, 0.18, '2024-03-15', 0, '', 5000, 0, 2000, '5.000 CP, cổ tức 2.000 đ/CP/năm'],
-    ['Tăng trưởng', 'Bất động sản cho thuê', 'Căn hộ chung cư Vinhomes', 3800000000, 3200000000, 0.056, '2023-11-20', 0, '', 1, 18000000, 0, 'Cho thuê 18 triệu/tháng, tỷ suất 5.6%/năm'],
-    ['Tăng trưởng', 'Trái phiếu doanh nghiệp', 'Trái phiếu Masan Group', 200000000, 200000000, 0.092, '2024-05-10', 24, '2026-05-10', 200, 0, 0, 'Trái phiếu kỳ hạn 2 năm lãi 9.2%/năm'],
-    ['Rủi ro', 'Tiền mã hóa', 'Bitcoin (BTC) & Ethereum (ETH)', 120000000, 90000000, 0.25, '2024-10-01', 0, '', 1, 0, 0, 'Danh mục mạo hiểm chu kỳ mới'],
+    ['TS-101', 1, 'Bảo vệ', 'Tiền gửi tiết kiệm', 'Sổ tiết kiệm Vietcombank 12T', 300000000, 300000000, 0.055, '2025-06-15', 12, '2026-06-15', 1, 0, 0, 'Lãi suất 5.5%/năm, kỳ hạn 12 tháng'],
+    ['TS-102', 2, 'Bảo vệ', 'Tiền mặt', 'Tài khoản Techcombank (Quỹ khẩn cấp)', 50000000, 50000000, 0, '2025-01-01', 0, '', 1, 0, 0, 'Dự phòng sinh hoạt 6 tháng'],
+    ['TS-103', 3, 'Bảo vệ', 'Vàng', 'Vàng miếng SJC 9999', 170000000, 150000000, 0.12, '2024-08-10', 0, '', 2, 0, 0, '2 lượng vàng tích trữ phòng vệ lạm phát'],
+    ['TS-104', 4, 'Tăng trưởng', 'Cổ phiếu', 'Cổ phiếu FPT Technology', 650000000, 500000000, 0.18, '2024-03-15', 0, '', 5000, 0, 2000, '5.000 CP, cổ tức 2.000 đ/CP/năm'],
+    ['TS-105', 5, 'Tăng trưởng', 'Bất động sản cho thuê', 'Căn hộ chung cư Vinhomes', 3800000000, 3200000000, 0.056, '2023-11-20', 0, '', 1, 18000000, 0, 'Cho thuê 18 triệu/tháng, tỷ suất 5.6%/năm'],
+    ['TS-106', 6, 'Tăng trưởng', 'Trái phiếu doanh nghiệp', 'Trái phiếu Masan Group', 200000000, 200000000, 0.092, '2024-05-10', 24, '2026-05-10', 200, 0, 0, 'Trái phiếu kỳ hạn 2 năm lãi 9.2%/năm'],
+    ['TS-107', 7, 'Rủi ro', 'Tiền mã hóa', 'Bitcoin (BTC) & Ethereum (ETH)', 120000000, 90000000, 0.25, '2024-10-01', 0, '', 1, 0, 0, 'Danh mục mạo hiểm chu kỳ mới'],
   ];
 
   const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
   ws1['!cols'] = [
+    { wch: 12 }, // Mã ID
+    { wch: 8 },  // STT
     { wch: 18 }, // Tầng Tháp
     { wch: 26 }, // Mã Phân Loại
     { wch: 38 }, // Tên Tài Sản
-    { wch: 24 }, // Giá Trị Hiện Tại (VNĐ)
-    { wch: 24 }, // Giá Vốn Ban Đầu (VNĐ)
-    { wch: 24 }, // Lãi Suất / Sinh Lời (%/năm)
+    { wch: 24 }, // Giá Trị Hiện Tại
+    { wch: 24 }, // Giá Vốn Ban Đầu
+    { wch: 24 }, // Lãi Suất %
     { wch: 20 }, // Ngày Bắt Đầu
-    { wch: 16 }, // Kỳ Hạn (Tháng)
+    { wch: 16 }, // Kỳ Hạn
     { wch: 18 }, // Ngày Đáo Hạn
     { wch: 14 }, // Số Lượng
-    { wch: 26 }, // Dòng Tiền Thu Về (VNĐ/tháng)
-    { wch: 26 }, // Cổ Tức Tiền Mặt
-    { wch: 45 }, // Ghi Chú / Kỳ Vọng
+    { wch: 26 }, // Dòng Tiền
+    { wch: 26 }, // Cổ Tức
+    { wch: 45 }, // Ghi Chú
   ];
 
-  // Apply number formatting to Sheet 1
   for (let r = 4; r < ws1Data.length; r++) {
-    const cellD = ws1[XLSX.utils.encode_cell({ r, c: 3 })];
-    if (cellD) cellD.z = '#,##0';
-    const cellE = ws1[XLSX.utils.encode_cell({ r, c: 4 })];
-    if (cellE) cellE.z = '#,##0';
-    const cellF = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
-    if (cellF) cellF.z = '0.0%';
-    const cellG = ws1[XLSX.utils.encode_cell({ r, c: 7 })];
-    if (cellG) cellG.z = '#,##0';
-    const cellJ = ws1[XLSX.utils.encode_cell({ r, c: 9 })];
-    if (cellJ) cellJ.z = '#,##0';
-    const cellK = ws1[XLSX.utils.encode_cell({ r, c: 10 })];
-    if (cellK) cellK.z = '#,##0';
-    const cellL = ws1[XLSX.utils.encode_cell({ r, c: 11 })];
-    if (cellL) cellL.z = '#,##0';
+    const cE = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
+    if (cE) cE.z = '#,##0';
+    const cF = ws1[XLSX.utils.encode_cell({ r, c: 6 })];
+    if (cF) cF.z = '#,##0';
+    const cG = ws1[XLSX.utils.encode_cell({ r, c: 7 })];
+    if (cG) cG.z = '0.0%';
   }
-
   XLSX.utils.book_append_sheet(wb, ws1, '1_Tai_San');
 
-  // ----------------------------------------
-  // SHEET 2: 2_Dong_Tien_Va_No (Thu Nhập & Nợ)
-  // ----------------------------------------
+  // SHEET 2: 2_Dong_Tien_Va_No
   const ws2Data: any[][] = [
     ['THU NHẬP DÒNG TIỀN VÀ NGHĨA VỤ NỢ (FILE MẪU CHUẨN ĐẦY ĐỦ THÔNG TIN)'],
-    ['* Hướng dẫn: Điền thu nhập hàng tháng ở phần 1 và các khoản nợ / chi phí định kỳ ở phần 2.'],
+    ['* Hướng dẫn: Điền thu nhập hàng tháng ở phần 1 và các khoản nợ / chi phí định kỳ ở phần 2. Giữ nguyên Mã ID khi sửa nợ cũ.'],
     [],
     ['[PHẦN 1: THU NHẬP HÀNG THÁNG]'],
     ['Khoản Thu Nhập', 'Số Tiền (VNĐ/tháng)', 'Ghi Chú'],
@@ -355,6 +426,8 @@ export const downloadStandardExcelTemplate = () => {
     [],
     ['[PHẦN 2: DANH SÁCH CÁC KHOẢN NỢ & CHI PHÍ ĐỊNH KỲ]'],
     [
+      'Mã ID',
+      'STT',
       'Phân Loại Khoản Nợ',
       'Tên Khoản Nợ / Chi Phí',
       'Ngày Vay / Bắt Đầu',
@@ -372,21 +445,23 @@ export const downloadStandardExcelTemplate = () => {
       'Trạng Thái',
       'Ghi Chú',
     ],
-    ['Loại 1: Vay có lãi', 'Vay mua nhà BIDV', '2024-03-15', 1200000000, 200000000, 120, 'Hàng tháng', 15500000, 0.065, 24, '2026-03-15', 0.105, 19800000, 15, 'Chưa tất toán', 'Cố định 2 năm đầu 6.5%'],
-    ['Loại 2: Trả góp 0%', 'Trả góp Laptop Macbook', '2025-01-10', 36000000, 18000000, 12, 'Hàng tháng', 3000000, 0, 0, '', 0, 3000000, 20, 'Chưa tất toán', 'Trả góp 0% qua thẻ tín dụng'],
-    ['Loại 3: Mượn người thân 0%', 'Vay người thân mua đất', '2024-06-01', 200000000, 50000000, 24, 'Linh hoạt', 0, 0, 0, '', 0, 0, 1, 'Chưa tất toán', 'Mượn 0% không tính lãi'],
-    ['Loại 4: Chi phí định kỳ', 'Bảo hiểm nhân thọ Dai-ichi', '2023-08-01', 0, 0, 12, 'Hàng tháng', 2500000, 0, 0, '', 0, 2500000, 10, 'Chưa tất toán', 'Đóng định kỳ bảo vệ gia đình'],
-    ['Loại 5: Chi tiêu sinh hoạt', 'Chi tiêu sinh hoạt gia đình', '2025-01-01', 0, 0, 1, 'Hàng tháng', 16000000, 0, 0, '', 0, 16000000, 1, 'Chưa tất toán', 'Ngân sách sinh hoạt tối thiểu'],
+    ['NO-201', 1, 'Loại 1: Vay có lãi', 'Vay mua nhà BIDV', '2024-03-15', 1200000000, 200000000, 120, 'Hàng tháng', 15500000, 0.065, 24, '2026-03-15', 0.105, 19800000, 15, 'Chưa tất toán', 'Cố định 2 năm đầu 6.5%'],
+    ['NO-202', 2, 'Loại 2: Trả góp 0%', 'Trả góp Laptop Macbook', '2025-01-10', 36000000, 18000000, 12, 'Hàng tháng', 3000000, 0, 0, '', 0, 3000000, 20, 'Chưa tất toán', 'Trả góp 0% qua thẻ tín dụng'],
+    ['NO-203', 3, 'Loại 3: Mượn người thân 0%', 'Vay người thân mua đất', '2024-06-01', 200000000, 50000000, 24, 'Linh hoạt', 0, 0, 0, '', 0, 0, 1, 'Chưa tất toán', 'Mượn 0% không tính lãi'],
+    ['NO-204', 4, 'Loại 4: Chi phí định kỳ', 'Bảo hiểm nhân thọ Dai-ichi', '2023-08-01', 0, 0, 12, 'Hàng tháng', 2500000, 0, 0, '', 0, 2500000, 10, 'Chưa tất toán', 'Đóng định kỳ bảo vệ gia đình'],
+    ['NO-205', 5, 'Loại 5: Chi tiêu sinh hoạt', 'Chi tiêu sinh hoạt gia đình', '2025-01-01', 0, 0, 1, 'Hàng tháng', 16000000, 0, 0, '', 0, 16000000, 1, 'Chưa tất toán', 'Ngân sách sinh hoạt tối thiểu'],
   ];
 
   const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
   ws2['!cols'] = [
+    { wch: 12 }, // Mã ID
+    { wch: 8 },  // STT
     { wch: 26 }, // Phân Loại
     { wch: 34 }, // Tên Khoản Nợ
-    { wch: 20 }, // Ngày Vay / Bắt Đầu
+    { wch: 20 }, // Ngày Vay
     { wch: 22 }, // Tổng Nợ Gốc
     { wch: 20 }, // Đã Trả Gốc
-    { wch: 18 }, // Kỳ Hạn Vay (Tháng)
+    { wch: 18 }, // Kỳ Hạn
     { wch: 18 }, // Kỳ Chi Trả
     { wch: 28 }, // Tiền Trả Trong Ưu Đãi
     { wch: 22 }, // Lãi Suất Ưu Đãi
@@ -398,39 +473,16 @@ export const downloadStandardExcelTemplate = () => {
     { wch: 16 }, // Trạng Thái
     { wch: 40 }, // Ghi Chú
   ];
-
-  // Income rows formatting
-  const cellInc1 = ws2[XLSX.utils.encode_cell({ r: 5, c: 1 })];
-  if (cellInc1) cellInc1.z = '#,##0';
-  const cellInc2 = ws2[XLSX.utils.encode_cell({ r: 6, c: 1 })];
-  if (cellInc2) cellInc2.z = '#,##0';
-
-  // Debt rows formatting
-  for (let r = 10; r < ws2Data.length; r++) {
-    const cDebt = ws2[XLSX.utils.encode_cell({ r, c: 3 })];
-    if (cDebt) cDebt.z = '#,##0';
-    const cPaid = ws2[XLSX.utils.encode_cell({ r, c: 4 })];
-    if (cPaid) cPaid.z = '#,##0';
-    const cMonthly1 = ws2[XLSX.utils.encode_cell({ r, c: 7 })];
-    if (cMonthly1) cMonthly1.z = '#,##0';
-    const cRate1 = ws2[XLSX.utils.encode_cell({ r, c: 8 })];
-    if (cRate1) cRate1.z = '0.0%';
-    const cRate2 = ws2[XLSX.utils.encode_cell({ r, c: 11 })];
-    if (cRate2) cRate2.z = '0.0%';
-    const cMonthly2 = ws2[XLSX.utils.encode_cell({ r, c: 12 })];
-    if (cMonthly2) cMonthly2.z = '#,##0';
-  }
-
   XLSX.utils.book_append_sheet(wb, ws2, '2_Dong_Tien_Va_No');
 
-  // ----------------------------------------
-  // SHEET 3: 3_Muc_Tieu (Mục Tiêu Tài Chính)
-  // ----------------------------------------
+  // SHEET 3: 3_Muc_Tieu
   const ws3Data: any[][] = [
     ['KẾ HOẠCH MỤC TIÊU TÀI CHÍNH 4 NHÓM (FILE MẪU CHUẨN ĐẦY ĐỦ THÔNG TIN)'],
-    ['* Hướng dẫn: Điền kế hoạch mục tiêu (Nhóm 1 Trả nợ, Nhóm 2 DCA, Nhóm 3 Runway, Nhóm 4 Cột mốc).'],
+    ['* Hướng dẫn: Điền kế hoạch mục tiêu. Giữ nguyên Mã ID khi sửa mục tiêu cũ. Để trống Mã ID khi thêm mới.'],
     [],
     [
+      'Mã ID',
+      'STT',
       'Nhóm Mục Tiêu',
       'Tên Mục Tiêu',
       'Loại Mục Tiêu',
@@ -447,14 +499,16 @@ export const downloadStandardExcelTemplate = () => {
       'Trạng Thái',
       'Ghi Chú / Chiến Lược',
     ],
-    ['Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản cổ phiếu FPT', 'DCA', 'Cổ phiếu', 1, 20, 200, 'CP', 0, 1500, 0, 0, 3, 'active', 'Mua định kỳ 200 CP ngày 20 hằng tháng'],
-    ['Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản Vàng nhẫn 9999', 'DCA', 'Vàng', 1, 25, 1, 'Chỉ', 0, 8, 0, 0, 2, 'active', 'Mua tích trữ mỗi tháng 1 chỉ'],
-    ['Nhóm 3: Dự phòng Runway', 'Quỹ khẩn cấp 6 tháng', 'Cột mốc', 'Tiền mặt', 1, 1, 0, 'VNĐ', 5000000, 50000000, 0, 120000000, 1, 'active', 'Quỹ dự phòng an toàn'],
-    ['Nhóm 4: Cột mốc tài chính / BĐS', 'Mua đất nền ven đô', 'Cột mốc', 'Khác', 3, 15, 0, 'VNĐ', 30000000, 300000000, 0, 1500000000, 4, 'active', 'Tích lũy vốn tự có chuẩn bị đầu tư'],
+    ['MT-301', 1, 'Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản cổ phiếu FPT', 'DCA', 'Cổ phiếu', 1, 20, 200, 'CP', 0, 1500, 0, 0, 3, 'active', 'Mua định kỳ 200 CP ngày 20 hằng tháng'],
+    ['MT-302', 2, 'Nhóm 2: Tích sản định kỳ (DCA)', 'Tích sản Vàng nhẫn 9999', 'DCA', 'Vàng', 1, 25, 1, 'Chỉ', 0, 8, 0, 0, 2, 'active', 'Mua tích trữ mỗi tháng 1 chỉ'],
+    ['MT-303', 3, 'Nhóm 3: Dự phòng Runway', 'Quỹ khẩn cấp 6 tháng', 'Cột mốc', 'Tiền mặt', 1, 1, 0, 'VNĐ', 5000000, 50000000, 0, 120000000, 1, 'active', 'Quỹ dự phòng an toàn'],
+    ['MT-304', 4, 'Nhóm 4: Cột mốc tài chính / BĐS', 'Mua đất nền ven đô', 'Cột mốc', 'Khác', 3, 15, 0, 'VNĐ', 30000000, 300000000, 0, 1500000000, 4, 'active', 'Tích lũy vốn tự có chuẩn bị đầu tư'],
   ];
 
   const ws3 = XLSX.utils.aoa_to_sheet(ws3Data);
   ws3['!cols'] = [
+    { wch: 12 }, // Mã ID
+    { wch: 8 },  // STT
     { wch: 30 }, // Nhóm Mục Tiêu
     { wch: 34 }, // Tên Mục Tiêu
     { wch: 18 }, // Loại Mục Tiêu
@@ -471,28 +525,13 @@ export const downloadStandardExcelTemplate = () => {
     { wch: 16 }, // Trạng Thái
     { wch: 45 }, // Ghi Chú
   ];
-
-  for (let r = 4; r < ws3Data.length; r++) {
-    const cTargetQty = ws3[XLSX.utils.encode_cell({ r, c: 6 })];
-    if (cTargetQty) cTargetQty.z = '#,##0';
-    const cPeriodAmt = ws3[XLSX.utils.encode_cell({ r, c: 8 })];
-    if (cPeriodAmt) cPeriodAmt.z = '#,##0';
-    const cAccum = ws3[XLSX.utils.encode_cell({ r, c: 9 })];
-    if (cAccum) cAccum.z = '#,##0';
-    const cBacklog = ws3[XLSX.utils.encode_cell({ r, c: 10 })];
-    if (cBacklog) cBacklog.z = '#,##0';
-    const cTarget = ws3[XLSX.utils.encode_cell({ r, c: 11 })];
-    if (cTarget) cTarget.z = '#,##0';
-  }
-
   XLSX.utils.book_append_sheet(wb, ws3, '3_Muc_Tieu');
 
-  // Trigger download
   XLSX.writeFile(wb, 'Mau_Nhap_Thap_Tai_San_Chuan.xlsx');
 };
 
 // ==========================================
-// 2. XUẤT TOÀN BỘ CƠ SỞ DỮ LIỆU THỰC TẾ RA EXCEL (3 SHEET)
+// 2. XUẤT TOÀN BỘ CƠ SỞ DỮ LIỆU THỰC TẾ RA EXCEL (3 SHEET VỚI MÃ ID & STT CHUẨN)
 // ==========================================
 export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: string) => {
   const wb = XLSX.utils.book_new();
@@ -503,8 +542,9 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
   const rows1: any[][] = [
     ['BÁO CÁO DANH MỤC THÁP TÀI SẢN 3 TẦNG'],
     [`Chủ tài khoản: ${accountName || 'Cá nhân'} | Ngày xuất: ${dateStr} | Tổng số tài sản: ${db.assets.length}`],
-    [],
+    ['* Lưu ý: Cột Mã ID dùng để đồng bộ sửa đổi chính xác vào ứng dụng. Khi thêm mới, hãy để trống cột Mã ID.'],
     [
+      'Mã ID',
       'STT',
       'Tầng Tháp',
       'Mã Phân Loại',
@@ -536,6 +576,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
         : 'Tầng 3: Rủi ro';
 
     rows1.push([
+      `TS-${item.id}`,
       idx + 1,
       levelLabel,
       getAssetTypeLabel(item.type),
@@ -549,13 +590,14 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
       item.quantity || 1,
       item.cashflow || 0,
       item.divCash || 0,
-      item.updatedAt ? `Cập nhật: ${item.updatedAt}` : '',
+      item.note || (item.updatedAt ? `Cập nhật: ${item.updatedAt}` : ''),
     ]);
   });
 
-  // Total summary row
+  // Total summary row at bottom
   rows1.push([]);
   rows1.push([
+    '',
     '',
     'TỔNG CỘNG',
     '',
@@ -574,6 +616,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
 
   const ws1 = XLSX.utils.aoa_to_sheet(rows1);
   ws1['!cols'] = [
+    { wch: 14 }, // Mã ID
     { wch: 8 },  // STT
     { wch: 22 }, // Tầng Tháp
     { wch: 26 }, // Mã Phân Loại
@@ -591,18 +634,18 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
   ];
 
   for (let r = 4; r < rows1.length; r++) {
-    const cD = ws1[XLSX.utils.encode_cell({ r, c: 4 })];
-    if (cD) cD.z = '#,##0';
     const cE = ws1[XLSX.utils.encode_cell({ r, c: 5 })];
     if (cE) cE.z = '#,##0';
     const cF = ws1[XLSX.utils.encode_cell({ r, c: 6 })];
-    if (cF) cF.z = '0.0%';
-    const cK = ws1[XLSX.utils.encode_cell({ r, c: 10 })];
-    if (cK) cK.z = '#,##0';
+    if (cF) cF.z = '#,##0';
+    const cG = ws1[XLSX.utils.encode_cell({ r, c: 7 })];
+    if (cG) cG.z = '0.0%';
     const cL = ws1[XLSX.utils.encode_cell({ r, c: 11 })];
     if (cL) cL.z = '#,##0';
     const cM = ws1[XLSX.utils.encode_cell({ r, c: 12 })];
     if (cM) cM.z = '#,##0';
+    const cN = ws1[XLSX.utils.encode_cell({ r, c: 13 })];
+    if (cN) cN.z = '#,##0';
   }
 
   XLSX.utils.book_append_sheet(wb, ws1, '1_Tai_San');
@@ -612,7 +655,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
   const rows2: any[][] = [
     ['BÁO CÁO DÒNG TIỀN VÀ NGHĨA VỤ NỢ'],
     [`Chủ tài khoản: ${accountName || 'Cá nhân'} | Ngày xuất: ${dateStr} | Tổng số khoản nợ: ${db.debts.length}`],
-    [],
+    ['* Lưu ý: Cột Mã ID dùng để đồng bộ sửa đổi chính xác. Khi thêm khoản nợ mới, hãy để trống cột Mã ID.'],
     ['[PHẦN 1: THU NHẬP HÀNG THÁNG]'],
     ['Khoản Thu Nhập', 'Số Tiền (VNĐ/tháng)', 'Ghi Chú'],
     ['Lương chủ động hằng tháng', db.salaryIncome || 0, 'Thu nhập chính sau thuế'],
@@ -620,6 +663,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     [],
     ['[PHẦN 2: DANH SÁCH CÁC KHOẢN NỢ & CHI PHÍ ĐỊNH KỲ]'],
     [
+      'Mã ID',
       'STT',
       'Phân Loại Khoản Nợ',
       'Tên Khoản Nợ / Chi Phí',
@@ -634,7 +678,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
       'Ngày Hết Ưu Đãi Lãi',
       'Lãi Suất Sau Ưu Đãi (%/năm)',
       'Tiền Trả Sau Ưu Đãi (VNĐ/kỳ)',
-      'Ngày Trả Trong Tháng',
+      'Ngày Trả Trong Tháng (1-31)',
       'Trạng Thái',
       'Ghi Chú',
     ],
@@ -653,6 +697,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
         : 'Hàng tháng';
 
     rows2.push([
+      `NO-${item.id}`,
       idx + 1,
       getDebtCategoryLabel(item.category),
       item.name,
@@ -676,6 +721,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
   rows2.push([]);
   rows2.push([
     '',
+    '',
     'TỔNG NỢ GỐC',
     '',
     '',
@@ -696,6 +742,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
 
   const ws2 = XLSX.utils.aoa_to_sheet(rows2);
   ws2['!cols'] = [
+    { wch: 14 }, // Mã ID
     { wch: 8 },  // STT
     { wch: 26 }, // Phân Loại
     { wch: 34 }, // Tên Khoản Nợ
@@ -715,35 +762,15 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     { wch: 35 }, // Ghi Chú
   ];
 
-  // Format Sheet 2
-  const cS1 = ws2[XLSX.utils.encode_cell({ r: 5, c: 1 })];
-  if (cS1) cS1.z = '#,##0';
-  const cS2 = ws2[XLSX.utils.encode_cell({ r: 6, c: 1 })];
-  if (cS2) cS2.z = '#,##0';
-
-  for (let r = 10; r < rows2.length; r++) {
-    const cD = ws2[XLSX.utils.encode_cell({ r, c: 4 })];
-    if (cD) cD.z = '#,##0';
-    const cP = ws2[XLSX.utils.encode_cell({ r, c: 5 })];
-    if (cP) cP.z = '#,##0';
-    const cM1 = ws2[XLSX.utils.encode_cell({ r, c: 8 })];
-    if (cM1) cM1.z = '#,##0';
-    const cR1 = ws2[XLSX.utils.encode_cell({ r, c: 9 })];
-    if (cR1) cR1.z = '0.0%';
-    const cR2 = ws2[XLSX.utils.encode_cell({ r, c: 12 })];
-    if (cR2) cR2.z = '0.0%';
-    const cM2 = ws2[XLSX.utils.encode_cell({ r, c: 13 })];
-    if (cM2) cM2.z = '#,##0';
-  }
-
   XLSX.utils.book_append_sheet(wb, ws2, '2_Dong_Tien_Va_No');
 
   // SHEET 3: MỤC TIÊU TÀI CHÍNH
   const rows3: any[][] = [
     ['BÁO CÁO MỤC TIÊU TÀI CHÍNH 4 NHÓM'],
     [`Chủ tài khoản: ${accountName || 'Cá nhân'} | Ngày xuất: ${dateStr} | Tổng số mục tiêu: ${db.goals.length}`],
-    [],
+    ['* Lưu ý: Cột Mã ID dùng để đồng bộ sửa đổi chính xác. Khi thêm mục tiêu mới, hãy để trống cột Mã ID.'],
     [
+      'Mã ID',
       'STT',
       'Nhóm Mục Tiêu',
       'Tên Mục Tiêu',
@@ -776,6 +803,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
         : 'Khác';
 
     rows3.push([
+      `MT-${item.id}`,
       idx + 1,
       getGoalGroupLabel(item.group),
       item.name,
@@ -797,6 +825,7 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
 
   const ws3 = XLSX.utils.aoa_to_sheet(rows3);
   ws3['!cols'] = [
+    { wch: 14 }, // Mã ID
     { wch: 8 },  // STT
     { wch: 30 }, // Nhóm Mục Tiêu
     { wch: 34 }, // Tên Mục Tiêu
@@ -815,19 +844,6 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
     { wch: 45 }, // Ghi Chú
   ];
 
-  for (let r = 4; r < rows3.length; r++) {
-    const cTargetQty = ws3[XLSX.utils.encode_cell({ r, c: 7 })];
-    if (cTargetQty) cTargetQty.z = '#,##0';
-    const cPeriodAmt = ws3[XLSX.utils.encode_cell({ r, c: 9 })];
-    if (cPeriodAmt) cPeriodAmt.z = '#,##0';
-    const cAccum = ws3[XLSX.utils.encode_cell({ r, c: 10 })];
-    if (cAccum) cAccum.z = '#,##0';
-    const cBacklog = ws3[XLSX.utils.encode_cell({ r, c: 11 })];
-    if (cBacklog) cBacklog.z = '#,##0';
-    const cTarget = ws3[XLSX.utils.encode_cell({ r, c: 12 })];
-    if (cTarget) cTarget.z = '#,##0';
-  }
-
   XLSX.utils.book_append_sheet(wb, ws3, '3_Muc_Tieu');
 
   const safeName = (accountName || 'User').replace(/[^a-zA-Z0-9]/g, '_');
@@ -835,12 +851,10 @@ export const exportFullDatabaseToExcel = (db: DatabaseState, accountName?: strin
   XLSX.writeFile(wb, fileName);
 };
 
-// Aliased for backward compatibility
 export const exportAssetsToExcel = (assetsOrDb: Asset[] | DatabaseState, accountName?: string) => {
   if ('assets' in (assetsOrDb as any) && 'debts' in (assetsOrDb as any)) {
     exportFullDatabaseToExcel(assetsOrDb as DatabaseState, accountName);
   } else {
-    // If only assets passed, create mini DB to export
     const miniDb: DatabaseState = {
       assets: assetsOrDb as Asset[],
       debts: [],
@@ -855,45 +869,27 @@ export const exportAssetsToExcel = (assetsOrDb: Asset[] | DatabaseState, account
 };
 
 // ==========================================
-// 3. PARSER THÔNG MINH CHO CẢ 3 PHẦN DỮ LIỆU
+// 3. PARSER THÔNG MINH CHO CẢ 3 PHẦN DỮ LIỆU (HỖ TRỢ MÃ ID & LOẠI BỎ TỔNG CỘNG)
 // ==========================================
-const isHeaderRow = (row: any[]): boolean => {
-  const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
-  return (
-    rowStr.includes('tầng') ||
-    rowStr.includes('tháp') ||
-    rowStr.includes('giá trị') ||
-    rowStr.includes('tên tài sản') ||
-    rowStr.includes('danh mục') ||
-    rowStr.includes('mã phân loại') ||
-    rowStr.includes('hướng dẫn') ||
-    rowStr.includes('chủ tài khoản') ||
-    rowStr.includes('stt') ||
-    rowStr.includes('phân loại khoản nợ') ||
-    rowStr.includes('nhóm mục tiêu') ||
-    rowStr.includes('tên khoản nợ') ||
-    rowStr.includes('tên mục tiêu') ||
-    rowStr.includes('[phần 1') ||
-    rowStr.includes('[phần 2')
-  );
-};
 
 // Parse Sheet 1: Assets
 export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
   const results: ParsedAssetItem[] = [];
 
-  // 1. Try to detect header row
+  // 1. Detect header row & column index mapping
   const colMap: Record<string, number> = {};
   let headerFound = false;
 
   for (const row of rawRows) {
     if (!row || row.length === 0) continue;
     const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
-    if (rowStr.includes('tầng') && (rowStr.includes('giá trị') || rowStr.includes('tên'))) {
+    if (rowStr.includes('tầng') && (rowStr.includes('giá trị') || rowStr.includes('tên') || rowStr.includes('mã'))) {
       row.forEach((cell, idx) => {
         const lower = String(cell || '').toLowerCase().trim();
-        if (lower.includes('tầng')) colMap.level = idx;
-        else if (lower.includes('phân loại') || lower.includes('mã')) colMap.type = idx;
+        if (lower.includes('mã id') || lower === 'id') colMap.id = idx;
+        else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
+        else if (lower.includes('tầng') || lower.includes('tháp')) colMap.level = idx;
+        else if (lower.includes('phân loại') || (lower.includes('mã') && !lower.includes('id'))) colMap.type = idx;
         else if (lower.includes('tên')) colMap.name = idx;
         else if (lower.includes('hiện tại') || lower.includes('giá trị')) colMap.amount = idx;
         else if (lower.includes('vốn')) colMap.costPrice = idx;
@@ -915,17 +911,9 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     if (!row || row.length === 0) continue;
     const nonEmpties = row.filter((c) => c !== undefined && c !== null && String(c).trim() !== '');
     if (nonEmpties.length === 0) continue;
-    if (isHeaderRow(row)) continue;
+    if (isHeaderRow(row) || isSummaryRow(row)) continue;
 
-    let cleanRow = [...row];
-    if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
-      cleanRow.shift(); // Remove STT if present
-    } else if (/^\d+$/.test(String(cleanRow[0]).trim()) && cleanRow.length >= 4 && String(cleanRow[0]).trim().length <= 3) {
-      cleanRow.shift();
-    }
-
-    if (cleanRow.length < 2) continue;
-
+    let colId: any = undefined;
     let colLevel = '';
     let colType = '';
     let colName = '';
@@ -941,6 +929,7 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     let colNote = '';
 
     if (headerFound && (colMap.name !== undefined || colMap.amount !== undefined)) {
+      colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colLevel = colMap.level !== undefined ? String(row[colMap.level] || '') : '';
       colType = colMap.type !== undefined ? String(row[colMap.type] || '') : '';
       colName = colMap.name !== undefined ? String(row[colMap.name] || '') : '';
@@ -954,57 +943,53 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
       colCashflow = colMap.cashflow !== undefined ? row[colMap.cashflow] : 0;
       colDivCash = colMap.divCash !== undefined ? row[colMap.divCash] : 0;
       colNote = colMap.note !== undefined ? String(row[colMap.note] || '') : '';
-    } else if (cleanRow.length >= 12) {
-      // New format: Level, Type, Name, Amount, CostPrice, Rate, StartDate, Term, Maturity, Qty, Cashflow, DivCash, Note
-      colLevel = String(cleanRow[0] || '');
-      colType = String(cleanRow[1] || '');
-      colName = String(cleanRow[2] || '');
-      colAmount = cleanRow[3];
-      colCostPrice = cleanRow[4];
-      colRate = cleanRow[5];
-      colStartDate = String(cleanRow[6] || '');
-      colTerm = cleanRow[7];
-      colMaturityDate = String(cleanRow[8] || '');
-      colQty = cleanRow[9];
-      colCashflow = cleanRow[10];
-      colDivCash = cleanRow[11];
-      colNote = String(cleanRow[12] || '');
-    } else if (cleanRow.length >= 10) {
-      // Previous 10-col format
-      colLevel = String(cleanRow[0] || '');
-      colType = String(cleanRow[1] || '');
-      colName = String(cleanRow[2] || '');
-      colAmount = cleanRow[3];
-      colCostPrice = cleanRow[4];
-      colRate = cleanRow[5];
-      colQty = cleanRow[6];
-      colCashflow = cleanRow[7];
-      colMaturityDate = String(cleanRow[8] || '');
-      colNote = String(cleanRow[9] || '');
-    } else if (cleanRow.length >= 5) {
-      colLevel = String(cleanRow[0] || '');
-      colType = String(cleanRow[1] || '');
-      colName = String(cleanRow[2] || '');
-      colAmount = cleanRow[3];
-      colNote = String(cleanRow[4] || '');
-    } else if (cleanRow.length >= 4) {
-      colLevel = String(cleanRow[0] || '');
-      colType = String(cleanRow[1] || '');
-      colName = String(cleanRow[2] || '');
-      colAmount = cleanRow[3];
-    } else if (cleanRow.length === 3) {
-      colLevel = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colAmount = cleanRow[2];
-    } else if (cleanRow.length === 2) {
-      colName = String(cleanRow[0] || '');
-      colAmount = cleanRow[1];
+    } else {
+      // Positional parsing fallback
+      let cleanRow = [...row];
+      // Check if col 0 is ID (e.g. "TS-123")
+      if (String(cleanRow[0] || '').toLowerCase().startsWith('ts-') || (typeof cleanRow[0] === 'string' && /^ts-\d+/i.test(cleanRow[0]))) {
+        colId = cleanRow.shift();
+      }
+      // Check if next col is STT
+      if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
+        cleanRow.shift();
+      } else if (/^\d+$/.test(String(cleanRow[0]).trim()) && cleanRow.length >= 4 && String(cleanRow[0]).trim().length <= 3) {
+        cleanRow.shift();
+      }
+
+      if (cleanRow.length >= 12) {
+        colLevel = String(cleanRow[0] || '');
+        colType = String(cleanRow[1] || '');
+        colName = String(cleanRow[2] || '');
+        colAmount = cleanRow[3];
+        colCostPrice = cleanRow[4];
+        colRate = cleanRow[5];
+        colStartDate = String(cleanRow[6] || '');
+        colTerm = cleanRow[7];
+        colMaturityDate = String(cleanRow[8] || '');
+        colQty = cleanRow[9];
+        colCashflow = cleanRow[10];
+        colDivCash = cleanRow[11];
+        colNote = String(cleanRow[12] || '');
+      } else if (cleanRow.length >= 4) {
+        colLevel = String(cleanRow[0] || '');
+        colType = String(cleanRow[1] || '');
+        colName = String(cleanRow[2] || '');
+        colAmount = cleanRow[3];
+        colCostPrice = cleanRow[4];
+        colNote = String(cleanRow[5] || '');
+      } else if (cleanRow.length >= 2) {
+        colName = String(cleanRow[0] || '');
+        colAmount = cleanRow[1];
+      }
     }
 
     const cleanName = colName.trim();
     const amountNum = parseAmountValue(colAmount);
     if (!cleanName && amountNum <= 0) continue;
+    if (cleanName.toLowerCase().includes('tổng cộng') || cleanName.toLowerCase().includes('tong cong')) continue;
 
+    const parsedId = parseIdValue(colId);
     const level = parseLevelString(colLevel || colType || cleanName);
     const assetType = parseAssetTypeString(colType || colName, level);
 
@@ -1018,6 +1003,7 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     const maturityVal = parseDateValue(colMaturityDate);
 
     results.push({
+      id: parsedId,
       level,
       type: assetType,
       typeName: getAssetTypeLabel(assetType),
@@ -1044,17 +1030,18 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
   let salaryIncome = 0;
   let otherIncome = 0;
 
-  // 1. Try to detect header row
   const colMap: Record<string, number> = {};
   let headerFound = false;
 
   for (const row of rawRows) {
     if (!row || row.length === 0) continue;
     const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
-    if (rowStr.includes('phân loại') && (rowStr.includes('nợ') || rowStr.includes('tên'))) {
+    if (rowStr.includes('phân loại') && (rowStr.includes('nợ') || rowStr.includes('tên') || rowStr.includes('mã'))) {
       row.forEach((cell, idx) => {
         const lower = String(cell || '').toLowerCase().trim();
-        if (lower.includes('phân loại')) colMap.category = idx;
+        if (lower.includes('mã id') || lower === 'id') colMap.id = idx;
+        else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
+        else if (lower.includes('phân loại')) colMap.category = idx;
         else if (lower.includes('tên')) colMap.name = idx;
         else if (lower.includes('ngày vay') || lower.includes('bắt đầu') || lower.includes('giải ngân')) colMap.startDate = idx;
         else if (lower.includes('tổng nợ') || lower.includes('nợ gốc')) colMap.amount = idx;
@@ -1098,17 +1085,9 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       continue;
     }
 
-    if (isHeaderRow(row)) continue;
+    if (isHeaderRow(row) || isSummaryRow(row)) continue;
 
-    let cleanRow = [...row];
-    if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
-      cleanRow.shift(); // Remove STT
-    } else if (/^\d+$/.test(String(cleanRow[0]).trim()) && cleanRow.length >= 4 && String(cleanRow[0]).trim().length <= 3) {
-      cleanRow.shift();
-    }
-
-    if (cleanRow.length < 2) continue;
-
+    let colId: any = undefined;
     let colCat = '';
     let colName = '';
     let colStartDate = '';
@@ -1127,6 +1106,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     let colNote = '';
 
     if (headerFound && (colMap.name !== undefined || colMap.amount !== undefined)) {
+      colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colCat = colMap.category !== undefined ? String(row[colMap.category] || '') : '';
       colName = colMap.name !== undefined ? String(row[colMap.name] || '') : '';
       colStartDate = colMap.startDate !== undefined ? String(row[colMap.startDate] || '') : '';
@@ -1143,48 +1123,44 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       colDay = colMap.day !== undefined ? row[colMap.day] : 1;
       colStatus = colMap.status !== undefined ? String(row[colMap.status] || 'Chưa tất toán') : 'Chưa tất toán';
       colNote = colMap.note !== undefined ? String(row[colMap.note] || '') : '';
-    } else if (cleanRow.length >= 15) {
-      // New 16-col structure
-      colCat = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colStartDate = String(cleanRow[2] || '');
-      colAmount = cleanRow[3];
-      colPaid = cleanRow[4];
-      colTerm = cleanRow[5];
-      colFreq = String(cleanRow[6] || 'monthly');
-      colMonthlyBefore = cleanRow[7];
-      colPromoRate = cleanRow[8];
-      colPromoMonths = cleanRow[9];
-      colPromoEndDate = String(cleanRow[10] || '');
-      colNormalRate = cleanRow[11];
-      colMonthlyAfter = cleanRow[12];
-      colDay = cleanRow[13];
-      colStatus = String(cleanRow[14] || 'Chưa tất toán');
-      colNote = String(cleanRow[15] || '');
-    } else if (cleanRow.length >= 10) {
-      // Previous 12-col structure
-      colCat = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colAmount = cleanRow[2];
-      colPaid = cleanRow[3];
-      colTerm = cleanRow[4];
-      colPromoRate = cleanRow[5];
-      colNormalRate = cleanRow[6];
-      colPromoMonths = cleanRow[7];
-      colMonthlyBefore = cleanRow[8];
-      colMonthlyAfter = cleanRow[8];
-      colDay = cleanRow[9];
-      colStatus = String(cleanRow[10] || 'Chưa tất toán');
-      colNote = String(cleanRow[11] || '');
-    } else if (cleanRow.length >= 4) {
-      colCat = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colAmount = cleanRow[2];
-      colMonthlyBefore = cleanRow[3];
-      colMonthlyAfter = cleanRow[3];
-    } else if (cleanRow.length >= 2) {
-      colName = String(cleanRow[0] || '');
-      colAmount = cleanRow[1];
+    } else {
+      let cleanRow = [...row];
+      if (String(cleanRow[0] || '').toLowerCase().startsWith('no-') || (typeof cleanRow[0] === 'string' && /^no-\d+/i.test(cleanRow[0]))) {
+        colId = cleanRow.shift();
+      }
+      if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
+        cleanRow.shift();
+      } else if (/^\d+$/.test(String(cleanRow[0]).trim()) && cleanRow.length >= 4 && String(cleanRow[0]).trim().length <= 3) {
+        cleanRow.shift();
+      }
+
+      if (cleanRow.length >= 15) {
+        colCat = String(cleanRow[0] || '');
+        colName = String(cleanRow[1] || '');
+        colStartDate = String(cleanRow[2] || '');
+        colAmount = cleanRow[3];
+        colPaid = cleanRow[4];
+        colTerm = cleanRow[5];
+        colFreq = String(cleanRow[6] || 'monthly');
+        colMonthlyBefore = cleanRow[7];
+        colPromoRate = cleanRow[8];
+        colPromoMonths = cleanRow[9];
+        colPromoEndDate = String(cleanRow[10] || '');
+        colNormalRate = cleanRow[11];
+        colMonthlyAfter = cleanRow[12];
+        colDay = cleanRow[13];
+        colStatus = String(cleanRow[14] || 'Chưa tất toán');
+        colNote = String(cleanRow[15] || '');
+      } else if (cleanRow.length >= 4) {
+        colCat = String(cleanRow[0] || '');
+        colName = String(cleanRow[1] || '');
+        colAmount = cleanRow[2];
+        colMonthlyBefore = cleanRow[3];
+        colMonthlyAfter = cleanRow[3];
+      } else if (cleanRow.length >= 2) {
+        colName = String(cleanRow[0] || '');
+        colAmount = cleanRow[1];
+      }
     }
 
     const cleanName = colName.trim();
@@ -1193,7 +1169,9 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     const monthlyAfterNum = colMonthlyAfter ? parseAmountValue(colMonthlyAfter) : monthlyBeforeNum;
 
     if (!cleanName && amountNum <= 0 && monthlyBeforeNum <= 0) continue;
+    if (cleanName.toLowerCase().includes('tổng cộng') || cleanName.toLowerCase().includes('tổng nợ')) continue;
 
+    const parsedId = parseIdValue(colId);
     const category = parseDebtCategoryString(colCat || cleanName);
     const paidNum = parseAmountValue(colPaid);
     const termNum = parseInt(String(colTerm || 0), 10) || undefined;
@@ -1212,6 +1190,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     else if (lowerFreq.includes('linh hoạt')) freq = 'flexible';
 
     debts.push({
+      id: parsedId,
       category,
       categoryName: getDebtCategoryLabel(category),
       name: cleanName || `Khoản nợ ${debts.length + 1}`,
@@ -1239,17 +1218,18 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
 export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
   const goals: ParsedGoalItem[] = [];
 
-  // 1. Try to detect header row
   const colMap: Record<string, number> = {};
   let headerFound = false;
 
   for (const row of rawRows) {
     if (!row || row.length === 0) continue;
     const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
-    if (rowStr.includes('mục tiêu') && (rowStr.includes('nhóm') || rowStr.includes('tên'))) {
+    if (rowStr.includes('mục tiêu') && (rowStr.includes('nhóm') || rowStr.includes('tên') || rowStr.includes('mã'))) {
       row.forEach((cell, idx) => {
         const lower = String(cell || '').toLowerCase().trim();
-        if (lower.includes('nhóm')) colMap.group = idx;
+        if (lower.includes('mã id') || lower === 'id') colMap.id = idx;
+        else if (lower === 'stt' || lower === 'tt') colMap.stt = idx;
+        else if (lower.includes('nhóm')) colMap.group = idx;
         else if (lower.includes('tên')) colMap.name = idx;
         else if (lower.includes('loại')) colMap.goalType = idx;
         else if (lower.includes('kênh')) colMap.assetType = idx;
@@ -1274,17 +1254,9 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
     if (!row || row.length === 0) continue;
     const nonEmpties = row.filter((c) => c !== undefined && c !== null && String(c).trim() !== '');
     if (nonEmpties.length === 0) continue;
-    if (isHeaderRow(row)) continue;
+    if (isHeaderRow(row) || isSummaryRow(row)) continue;
 
-    let cleanRow = [...row];
-    if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
-      cleanRow.shift(); // Remove STT
-    } else if (/^\d+$/.test(String(cleanRow[0]).trim()) && cleanRow.length >= 4 && String(cleanRow[0]).trim().length <= 3) {
-      cleanRow.shift();
-    }
-
-    if (cleanRow.length < 2) continue;
-
+    let colId: any = undefined;
     let colGroup = '';
     let colName = '';
     let colType = 'DCA';
@@ -1302,6 +1274,7 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
     let colNote = '';
 
     if (headerFound && (colMap.name !== undefined || colMap.target !== undefined || colMap.targetQty !== undefined)) {
+      colId = colMap.id !== undefined ? row[colMap.id] : undefined;
       colGroup = colMap.group !== undefined ? String(row[colMap.group] || '') : '';
       colName = colMap.name !== undefined ? String(row[colMap.name] || '') : '';
       colType = colMap.goalType !== undefined ? String(row[colMap.goalType] || 'DCA') : 'DCA';
@@ -1317,42 +1290,42 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
       colYears = colMap.years !== undefined ? row[colMap.years] : 1;
       colStatus = colMap.status !== undefined ? String(row[colMap.status] || 'active') : 'active';
       colNote = colMap.note !== undefined ? String(row[colMap.note] || '') : '';
-    } else if (cleanRow.length >= 14) {
-      // New 15-column format
-      colGroup = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colType = String(cleanRow[2] || 'DCA');
-      colAssetType = String(cleanRow[3] || '');
-      colFreqMonths = cleanRow[4];
-      colDay = cleanRow[5];
-      colTargetQty = cleanRow[6];
-      colUnit = String(cleanRow[7] || 'VNĐ');
-      colPeriodAmount = cleanRow[8];
-      colAccum = cleanRow[9];
-      colBacklog = cleanRow[10];
-      colTarget = cleanRow[11];
-      colYears = cleanRow[12];
-      colStatus = String(cleanRow[13] || 'active');
-      colNote = String(cleanRow[14] || '');
-    } else if (cleanRow.length >= 8) {
-      // Previous 9-column format
-      colGroup = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colType = String(cleanRow[2] || 'DCA');
-      colTargetQty = cleanRow[3];
-      colUnit = String(cleanRow[4] || 'VNĐ');
-      colAccum = cleanRow[5];
-      colTarget = cleanRow[6];
-      colYears = cleanRow[7];
-      colNote = String(cleanRow[8] || '');
-    } else if (cleanRow.length >= 4) {
-      colGroup = String(cleanRow[0] || '');
-      colName = String(cleanRow[1] || '');
-      colTarget = cleanRow[2];
-      colNote = String(cleanRow[3] || '');
-    } else if (cleanRow.length >= 2) {
-      colName = String(cleanRow[0] || '');
-      colTarget = cleanRow[1];
+    } else {
+      let cleanRow = [...row];
+      if (String(cleanRow[0] || '').toLowerCase().startsWith('mt-') || (typeof cleanRow[0] === 'string' && /^mt-\d+/i.test(cleanRow[0]))) {
+        colId = cleanRow.shift();
+      }
+      if (typeof cleanRow[0] === 'number' && cleanRow.length >= 4) {
+        cleanRow.shift();
+      } else if (/^\d+$/.test(String(cleanRow[0]).trim()) && cleanRow.length >= 4 && String(cleanRow[0]).trim().length <= 3) {
+        cleanRow.shift();
+      }
+
+      if (cleanRow.length >= 14) {
+        colGroup = String(cleanRow[0] || '');
+        colName = String(cleanRow[1] || '');
+        colType = String(cleanRow[2] || 'DCA');
+        colAssetType = String(cleanRow[3] || '');
+        colFreqMonths = cleanRow[4];
+        colDay = cleanRow[5];
+        colTargetQty = cleanRow[6];
+        colUnit = String(cleanRow[7] || 'VNĐ');
+        colPeriodAmount = cleanRow[8];
+        colAccum = cleanRow[9];
+        colBacklog = cleanRow[10];
+        colTarget = cleanRow[11];
+        colYears = cleanRow[12];
+        colStatus = String(cleanRow[13] || 'active');
+        colNote = String(cleanRow[14] || '');
+      } else if (cleanRow.length >= 4) {
+        colGroup = String(cleanRow[0] || '');
+        colName = String(cleanRow[1] || '');
+        colTarget = cleanRow[2];
+        colNote = String(cleanRow[3] || '');
+      } else if (cleanRow.length >= 2) {
+        colName = String(cleanRow[0] || '');
+        colTarget = cleanRow[1];
+      }
     }
 
     const cleanName = colName.trim();
@@ -1363,7 +1336,9 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
     const backlogNum = parseQuantityValue(colBacklog);
 
     if (!cleanName && targetQtyNum <= 0 && targetNum <= 0 && periodAmtNum <= 0) continue;
+    if (cleanName.toLowerCase().includes('tổng cộng')) continue;
 
+    const parsedId = parseIdValue(colId);
     const group = parseGoalGroupString(colGroup || cleanName);
     const isDCA = String(colType).toLowerCase().includes('dca') || group === 'dca';
     const yearsNum = parseInt(String(colYears || 1), 10) || 1;
@@ -1386,6 +1361,7 @@ export const parseRawRowsToGoals = (rawRows: any[][]): ParsedGoalItem[] => {
         : 'active';
 
     goals.push({
+      id: parsedId,
       group,
       groupName: getGoalGroupLabel(group),
       name: cleanName || `Mục tiêu ${goals.length + 1}`,
@@ -1425,7 +1401,6 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
 
   if (!wb.SheetNames || wb.SheetNames.length === 0) return result;
 
-  // Inspect all sheets in workbook
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
     if (!ws) continue;
@@ -1449,7 +1424,7 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
       const parsed = parseRawRowsToGoals(rawData);
       if (parsed.length > 0) result.goals.push(...parsed);
     } else {
-      // Fallback: If only 1 generic sheet, inspect content
+      // Fallback if generic single sheet
       if (wb.SheetNames.length === 1) {
         const parsedAssets = parseRawRowsToAssets(rawData);
         if (parsedAssets.length > 0) result.assets.push(...parsedAssets);
@@ -1465,7 +1440,7 @@ export const parseExcelFile = async (file: File): Promise<ParsedFullDatabase> =>
     }
   }
 
-  // If no assets found from name-based matching, attempt to parse sheet 0 as assets
+  // Fallback: If no assets found, parse sheet 0 as assets
   if (result.assets.length === 0 && wb.SheetNames[0]) {
     const ws0 = wb.Sheets[wb.SheetNames[0]];
     const rawData0 = XLSX.utils.sheet_to_json<any[]>(ws0, { header: 1 });

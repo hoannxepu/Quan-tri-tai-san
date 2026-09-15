@@ -850,51 +850,140 @@ export default function App() {
 
   const handleImportDataFromExcel = (
     data: {
-      assets: Omit<Asset, 'id'>[];
-      debts: Omit<Debt, 'id'>[];
-      goals: Omit<Goal, 'id'>[];
+      assets: (Asset | Omit<Asset, 'id'>)[];
+      debts: (Debt | Omit<Debt, 'id'>)[];
+      goals: (Goal | Omit<Goal, 'id'>)[];
       salaryIncome?: number;
       otherIncome?: number;
     },
-    mode: 'append' | 'replace'
+    mode: 'sync' | 'replace' | 'append'
   ) => {
     setDb((prev) => {
-      let updatedAssets: Asset[];
-      let updatedDebts: Debt[];
-      let updatedGoals: Goal[];
+      let updatedAssets: Asset[] = [...prev.assets];
+      let updatedDebts: Debt[] = [...prev.debts];
+      let updatedGoals: Goal[] = [...prev.goals];
 
-      if (mode === 'replace') {
+      if (mode === 'sync') {
+        // Mode 1: Smart Sync by ID
+        // Assets Sync
+        if (data.assets.length > 0) {
+          const existingIds = new Set(prev.assets.map((a) => a.id));
+          let nextAssetId = Date.now();
+          const assetMap = new Map<number, Asset>();
+          prev.assets.forEach((a) => assetMap.set(a.id, a));
+
+          data.assets.forEach((item) => {
+            if ('id' in item && item.id && assetMap.has(item.id)) {
+              // Update existing asset
+              assetMap.set(item.id, { ...(item as Asset) });
+            } else {
+              // Add new asset with unique ID
+              while (existingIds.has(nextAssetId)) nextAssetId++;
+              existingIds.add(nextAssetId);
+              const newAsset: Asset = { ...(item as any), id: nextAssetId };
+              assetMap.set(nextAssetId, newAsset);
+            }
+          });
+          updatedAssets = Array.from(assetMap.values());
+        }
+
+        // Debts Sync
+        if (data.debts.length > 0) {
+          const existingDebtIds = new Set(prev.debts.map((d) => d.id));
+          let nextDebtId = Date.now() + 1000;
+          const debtMap = new Map<number, Debt>();
+          prev.debts.forEach((d) => debtMap.set(d.id, d));
+
+          data.debts.forEach((item) => {
+            if ('id' in item && item.id && debtMap.has(item.id)) {
+              // Update existing debt
+              debtMap.set(item.id, { ...(item as Debt) });
+            } else {
+              // Add new debt
+              while (existingDebtIds.has(nextDebtId)) nextDebtId++;
+              existingDebtIds.add(nextDebtId);
+              const newDebt: Debt = { ...(item as any), id: nextDebtId };
+              debtMap.set(nextDebtId, newDebt);
+            }
+          });
+          updatedDebts = Array.from(debtMap.values());
+        }
+
+        // Goals Sync
+        if (data.goals.length > 0) {
+          const existingGoalIds = new Set(prev.goals.map((g) => g.id));
+          let nextGoalId = Date.now() + 2000;
+          const goalMap = new Map<number, Goal>();
+          prev.goals.forEach((g) => goalMap.set(g.id, g));
+
+          data.goals.forEach((item) => {
+            if ('id' in item && item.id && goalMap.has(item.id)) {
+              // Update existing goal
+              goalMap.set(item.id, { ...(item as Goal) });
+            } else {
+              // Add new goal
+              while (existingGoalIds.has(nextGoalId)) nextGoalId++;
+              existingGoalIds.add(nextGoalId);
+              const newGoal: Goal = { ...(item as any), id: nextGoalId };
+              goalMap.set(nextGoalId, newGoal);
+            }
+          });
+          updatedGoals = Array.from(goalMap.values());
+        }
+      } else if (mode === 'replace') {
+        // Mode 2: Replace All
+        const usedAssetIds = new Set<number>();
+        let nextAssetId = Date.now();
         updatedAssets =
           data.assets.length > 0
-            ? data.assets.map((item, idx) => ({
-                ...item,
-                id: Date.now() + idx,
-              }))
+            ? data.assets.map((item) => {
+                let id = 'id' in item && item.id ? item.id : 0;
+                if (!id || usedAssetIds.has(id)) {
+                  while (usedAssetIds.has(nextAssetId)) nextAssetId++;
+                  id = nextAssetId;
+                }
+                usedAssetIds.add(id);
+                return { ...(item as any), id };
+              })
             : prev.assets;
 
+        const usedDebtIds = new Set<number>();
+        let nextDebtId = Date.now() + 1000;
         updatedDebts =
           data.debts.length > 0
-            ? data.debts.map((item, idx) => ({
-                ...item,
-                id: Date.now() + 1000 + idx,
-              }))
+            ? data.debts.map((item) => {
+                let id = 'id' in item && item.id ? item.id : 0;
+                if (!id || usedDebtIds.has(id)) {
+                  while (usedDebtIds.has(nextDebtId)) nextDebtId++;
+                  id = nextDebtId;
+                }
+                usedDebtIds.add(id);
+                return { ...(item as any), id };
+              })
             : prev.debts;
 
+        const usedGoalIds = new Set<number>();
+        let nextGoalId = Date.now() + 2000;
         updatedGoals =
           data.goals.length > 0
-            ? data.goals.map((item, idx) => ({
-                ...item,
-                id: Date.now() + 2000 + idx,
-              }))
+            ? data.goals.map((item) => {
+                let id = 'id' in item && item.id ? item.id : 0;
+                if (!id || usedGoalIds.has(id)) {
+                  while (usedGoalIds.has(nextGoalId)) nextGoalId++;
+                  id = nextGoalId;
+                }
+                usedGoalIds.add(id);
+                return { ...(item as any), id };
+              })
             : prev.goals;
       } else {
-        // Mode Append
+        // Mode 3: Append All (create fresh IDs)
         const existingAssetIds = new Set(prev.assets.map((a) => a.id));
         let nextAssetId = Date.now();
         const formattedNewAssets: Asset[] = data.assets.map((item) => {
           while (existingAssetIds.has(nextAssetId)) nextAssetId++;
           existingAssetIds.add(nextAssetId);
-          return { ...item, id: nextAssetId };
+          return { ...(item as any), id: nextAssetId };
         });
         updatedAssets = [...prev.assets, ...formattedNewAssets];
 
@@ -903,7 +992,7 @@ export default function App() {
         const formattedNewDebts: Debt[] = data.debts.map((item) => {
           while (existingDebtIds.has(nextDebtId)) nextDebtId++;
           existingDebtIds.add(nextDebtId);
-          return { ...item, id: nextDebtId };
+          return { ...(item as any), id: nextDebtId };
         });
         updatedDebts = [...prev.debts, ...formattedNewDebts];
 
@@ -912,7 +1001,7 @@ export default function App() {
         const formattedNewGoals: Goal[] = data.goals.map((item) => {
           while (existingGoalIds.has(nextGoalId)) nextGoalId++;
           existingGoalIds.add(nextGoalId);
-          return { ...item, id: nextGoalId };
+          return { ...(item as any), id: nextGoalId };
         });
         updatedGoals = [...prev.goals, ...formattedNewGoals];
       }

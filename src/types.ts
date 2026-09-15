@@ -28,6 +28,7 @@ export interface Asset {
   cashflow?: number; // Dòng tiền thu về hàng tháng (VNĐ)
   divCash?: number; // Cổ tức tiền mặt (VNĐ/CP/năm)
   updatedAt?: string;
+  note?: string;
 }
 
 export type DebtCategory = 'type1' | 'type2' | 'type_free' | 'type3' | 'type4';
