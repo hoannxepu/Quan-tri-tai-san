@@ -663,3 +663,95 @@ export function getStandardTimeline(range: 'quarter' | 'year' | '3years' | '5yea
   ];
 }
 
+/**
+ * Kiểm tra xem một khoản nợ có phải là khoản không có kỳ hạn hay không
+ * (Bao gồm: loại mượn tự do type_free, chu kỳ linh hoạt flexible, kỳ hạn 0/undefined, hoặc ghi chú trả khi có tiền)
+ */
+export function isNoTermDebt(d: any): boolean {
+  if (!d) return false;
+  if (d.isNoTerm === true) return true;
+  if (d.category === 'type_free') return true;
+  if (d.frequency === 'flexible') return true;
+  if (d.category === 'type2' && (!d.termMonths || d.termMonths === 0)) return true;
+  if (typeof d.termMonths === 'number' && d.termMonths <= 0) return true;
+  const noteLower = String(d.note || '').toLowerCase();
+  if (
+    noteLower.includes('khi nào có') ||
+    noteLower.includes('khi nao co') ||
+    noteLower.includes('không kỳ hạn') ||
+    noteLower.includes('khong ky han') ||
+    noteLower.includes('không có kỳ hạn') ||
+    noteLower.includes('khong co ky han') ||
+    noteLower.includes('trả tự do') ||
+    noteLower.includes('tra tu do')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Kiểm tra xem tài sản có phải là không kỳ hạn hay không (sổ tiết kiệm/tiền gửi không kỳ hạn)
+ */
+export function isNoTermAsset(a: any): boolean {
+  if (!a) return false;
+  if (a.isNoTerm === true) return true;
+  if (a.type === 'saving' && (!a.termMonths || a.termMonths === 0)) return true;
+  if (typeof a.termMonths === 'number' && a.termMonths <= 0) return true;
+  const noteLower = String(a.note || '').toLowerCase();
+  if (
+    noteLower.includes('không kỳ hạn') ||
+    noteLower.includes('khong ky han') ||
+    noteLower.includes('kkh') ||
+    noteLower.includes('linh hoạt') ||
+    noteLower.includes('linh hoat')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Tự động sửa chữa dữ liệu nợ nếu bị lỗi lệch 1đ do cột Excel map nhầm
+ */
+export function repairDebtPeriodicAmount(d: any): any {
+  if (!d) return d;
+  const noTerm = isNoTermDebt(d);
+  if (noTerm) {
+    return {
+      ...d,
+      isNoTerm: true,
+      frequency: 'flexible',
+      day: undefined,
+      monthlyBefore: 0,
+      monthlyAfter: 0,
+    };
+  }
+
+  // Nếu bị lỗi 1 đ do cột Excel map nhầm với số ngày (day = 1)
+  if (d.monthlyBefore === 1 && d.amount > 1000) {
+    if (d.category === 'type3' || d.category === 'type4') {
+      const fixed = d.periodicAmount && d.periodicAmount > 1 ? d.periodicAmount : d.amount;
+      return { ...d, monthlyBefore: fixed, monthlyAfter: fixed, periodicAmount: fixed };
+    }
+    if (d.category === 'type1') {
+      const pPart = d.termMonths ? Math.round(d.amount / d.termMonths) : 0;
+      const pInt = d.promoRate ? Math.round((d.amount * (d.promoRate / 100)) / 12) : 0;
+      const computed = pPart + pInt;
+      return { ...d, monthlyBefore: computed > 0 ? computed : d.amount };
+    }
+    if (d.category === 'type2') {
+      const fixed =
+        d.installmentAmount && d.installmentAmount > 1
+          ? d.installmentAmount
+          : d.termMonths && d.termMonths > 1
+          ? Math.round(d.amount / d.termMonths)
+          : 0;
+      return { ...d, monthlyBefore: fixed, monthlyAfter: fixed };
+    }
+  }
+
+  return d;
+}
+
+

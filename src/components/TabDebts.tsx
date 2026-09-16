@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Debt, DatabaseState, DebtCategory } from '../types';
-import { formatVND, formatNumberString, parseFormattedNumber, formatDateVN, calculateMaturityDate, calculateMaturityDateISO, getStandardTimeline, getActualTimelinePoints } from '../utils/format';
+import { formatVND, formatNumberString, parseFormattedNumber, formatDateVN, calculateMaturityDate, calculateMaturityDateISO, getStandardTimeline, getActualTimelinePoints, isNoTermDebt, repairDebtPeriodicAmount } from '../utils/format';
 import { createPointValuePlugin } from '../utils/chartPlugin';
 import { Chart, registerables } from 'chart.js';
 import { Scale, PlusCircle, Pen, Check, Trash2, Eye, ChevronDown, ChevronUp, AlertTriangle, Calendar, X, TrendingUp, Award, Info, ChevronRight } from 'lucide-react';
@@ -53,6 +53,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
   const [debtDay, setDebtDay] = useState(20);
   const [debtStartDate, setDebtStartDate] = useState('');
   const [debtNote, setDebtNote] = useState('');
+  const [debtIsNoTerm, setDebtIsNoTerm] = useState(false);
 
   const [debtAmountStr, setDebtAmountStr] = useState('');
   const [debtTermMonthsStr, setDebtTermMonthsStr] = useState('');
@@ -109,9 +110,10 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
   let totalPeriodicMonthly = 0;
   let totalLivingMonthly = 0;
 
-  db.debts.forEach((d) => {
+  db.debts.forEach((rawD) => {
+    const d = repairDebtPeriodicAmount(rawD);
     if (d.status !== 'Đã tất toán') {
-      if (d.category === 'type_free') {
+      if (isNoTermDebt(d)) {
         catStats.type_free.count += 1;
       } else {
         let m = d.monthlyBefore || d.installmentAmount || d.periodicAmount || 0;
@@ -270,17 +272,20 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
     }
   };
 
-  const handleEditDebt = (d: Debt) => {
+  const handleEditDebt = (rawD: Debt) => {
+    const d = repairDebtPeriodicAmount(rawD);
+    const noTerm = isNoTermDebt(d);
+    setDebtIsNoTerm(noTerm);
     setEditingDebtId(d.id);
     setDebtCat(d.category);
     setDebtName(d.name);
-    setDebtFreq(d.frequency);
+    setDebtFreq(noTerm ? 'flexible' : d.frequency);
     setDebtDay(d.day || 20);
     setDebtStartDate(d.startDate || '');
     setDebtNote(d.note || '');
 
     setDebtAmountStr(formatNumberString(d.amount));
-    setDebtTermMonthsStr(d.termMonths ? String(d.termMonths) : '');
+    setDebtTermMonthsStr(noTerm ? '' : (d.termMonths ? String(d.termMonths) : ''));
     setInstallmentAmountStr(d.installmentAmount ? formatNumberString(d.installmentAmount) : '');
     setPeriodicAmountStr(d.periodicAmount ? formatNumberString(d.periodicAmount) : '');
     setPromoMonthsStr(d.promoMonths ? String(d.promoMonths) : '');
@@ -302,6 +307,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
     setDebtDay(20);
     setDebtStartDate('');
     setDebtNote('');
+    setDebtIsNoTerm(false);
     setDebtAmountStr('');
     setDebtTermMonthsStr('');
     setInstallmentAmountStr('');
@@ -320,6 +326,8 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
       return;
     }
 
+    const isActuallyNoTerm = debtIsNoTerm || debtCat === 'type_free' || debtFreq === 'flexible';
+
     let amount = 0;
     let termMonths = 0;
     let installmentAmount = 0;
@@ -330,7 +338,11 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
     let computedMonthlyBefore = 0;
     let computedMonthlyAfter = 0;
 
-    if (debtCat === 'type1') {
+    if (isActuallyNoTerm) {
+      amount = parseFormattedNumber(debtAmountStr);
+      computedMonthlyBefore = 0;
+      computedMonthlyAfter = 0;
+    } else if (debtCat === 'type1') {
       amount = parseFormattedNumber(debtAmountStr);
       termMonths = Number(debtTermMonthsStr) || 0;
       promoMonths = Number(promoMonthsStr) || 0;
@@ -378,15 +390,15 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
       id: editingDebtId || Date.now(),
       category: debtCat,
       name: debtName.trim(),
-      frequency: debtCat === 'type_free' ? 'flexible' : debtFreq,
+      frequency: isActuallyNoTerm ? 'flexible' : debtFreq,
       startDate: debtCat !== 'type4' ? debtStartDate : undefined,
-      day: debtCat !== 'type_free' ? debtDay : undefined,
+      day: isActuallyNoTerm ? undefined : debtDay,
       amount,
-      termMonths: termMonths || undefined,
-      installmentAmount: installmentAmount || undefined,
-      periodicAmount: periodicAmount || undefined,
-      promoMonths: promoMonths || undefined,
-      promoEndDate: (debtCat === 'type1' && debtStartDate && promoMonths ? calculateMaturityDateISO(debtStartDate, promoMonths) : debtPromoEndDate) || undefined,
+      termMonths: isActuallyNoTerm ? undefined : (termMonths || undefined),
+      installmentAmount: isActuallyNoTerm ? undefined : (installmentAmount || undefined),
+      periodicAmount: isActuallyNoTerm ? undefined : (periodicAmount || undefined),
+      promoMonths: isActuallyNoTerm ? undefined : (promoMonths || undefined),
+      promoEndDate: (!isActuallyNoTerm && debtCat === 'type1' && debtStartDate && promoMonths ? calculateMaturityDateISO(debtStartDate, promoMonths) : debtPromoEndDate) || undefined,
       promoRate: promoRate || undefined,
       normalRate: normalRate || undefined,
       monthlyBefore: computedMonthlyBefore,
@@ -395,6 +407,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
       note: debtNote.trim() || undefined,
       status: existingDebt?.status || 'Chưa tất toán',
       settledDate: existingDebt?.settledDate || undefined,
+      isNoTerm: isActuallyNoTerm ? true : undefined,
     };
 
     onUpdateDebt(newDebt);
@@ -1190,29 +1203,50 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center justify-between">
                   <span>Thời Hạn Tổng (Tháng)</span>
-                  {debtStartDate && debtTermMonthsStr && (
-                    <span className="text-[9.5px] text-emerald-700 font-bold">
-                      Đáo hạn: {calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}
-                    </span>
-                  )}
+                  <label className="flex items-center gap-1 cursor-pointer text-[10.5px] text-purple-700 font-bold select-none hover:text-purple-900">
+                    <input
+                      type="checkbox"
+                      checked={debtIsNoTerm}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setDebtIsNoTerm(checked);
+                        if (checked) {
+                          setDebtFreq('flexible');
+                          setDebtTermMonthsStr('');
+                        } else {
+                          setDebtFreq('monthly');
+                        }
+                      }}
+                      className="rounded text-purple-600 focus:ring-0 cursor-pointer w-3.5 h-3.5"
+                    />
+                    <span>Không kỳ hạn</span>
+                  </label>
                 </label>
-                <input
-                  type="number"
-                  value={debtTermMonthsStr}
-                  onChange={(e) => setDebtTermMonthsStr(e.target.value)}
-                  placeholder="VD: 240 (Tháng)"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                />
-                {debtStartDate && debtTermMonthsStr && (
-                  <div className="mt-1 text-[9.5px] text-slate-500 font-medium flex items-center gap-1">
-                    <span>🔒 Ngày tất toán hợp đồng:</span>
-                    <span className="font-bold text-slate-800">{calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}</span>
+                {debtIsNoTerm ? (
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-2.5 text-xs font-bold text-purple-800 flex items-center gap-1.5">
+                    <span>✨ Khoản nợ không kỳ hạn (Linh hoạt)</span>
                   </div>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      value={debtTermMonthsStr}
+                      onChange={(e) => setDebtTermMonthsStr(e.target.value)}
+                      placeholder="VD: 240 (Tháng)"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
+                    />
+                    {debtStartDate && debtTermMonthsStr && (
+                      <div className="mt-1 text-[9.5px] text-slate-500 font-medium flex items-center gap-1">
+                        <span>🔒 Ngày tất toán hợp đồng:</span>
+                        <span className="font-bold text-slate-800">{calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
-            {debtCat === 'type2' && (
+            {debtCat === 'type2' && !debtIsNoTerm && (
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
                   Trả Mỗi Kỳ (VNĐ - trống tự chia)
@@ -1242,24 +1276,32 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
               </div>
             )}
 
-            {debtCat !== 'type_free' && (
+            {debtCat !== 'type_free' && !debtIsNoTerm && (
               <>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Chu Kỳ Thanh Toán</label>
                   <select
                     value={debtFreq}
-                    onChange={(e) => setDebtFreq(e.target.value as any)}
+                    onChange={(e) => {
+                      const val = e.target.value as any;
+                      setDebtFreq(val);
+                      if (val === 'flexible') {
+                        setDebtIsNoTerm(true);
+                        setDebtTermMonthsStr('');
+                      }
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-rose-500"
                   >
                     <option value="monthly">Hàng tháng (Monthly)</option>
                     <option value="quarterly">Hàng quý (Quarterly)</option>
                     <option value="biannual">6 tháng / Nửa năm</option>
                     <option value="annual">Hàng năm (Annual)</option>
+                    <option value="flexible">Không kỳ hạn / Trả linh hoạt</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Ngày Đến Hạn</label>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Ngày Đến Hạn (1-31)</label>
                   <input
                     type="number"
                     min="1"
@@ -1271,6 +1313,15 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                   />
                 </div>
               </>
+            )}
+
+            {debtIsNoTerm && debtCat !== 'type_free' && (
+              <div className="col-span-1 md:col-span-2 bg-purple-50/90 border border-purple-200 rounded-xl p-2.5 text-[11px] text-purple-900 flex items-center gap-2">
+                <span className="text-sm shrink-0">ℹ️</span>
+                <span>
+                  <strong>Khoản nợ không kỳ hạn:</strong> Không có hạn tiếp theo cần đóng tiền. Bạn có thể thanh toán linh hoạt bất kỳ lúc nào khi có tài chính.
+                </span>
+              </div>
             )}
           </div>
 
@@ -1433,7 +1484,9 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                   Chưa có nghĩa vụ tài chính nào.
                 </div>
               ) : (
-                db.debts.map((d, index) => {
+                db.debts.map((rawD, index) => {
+                  const d = repairDebtPeriodicAmount(rawD);
+                  const isNoTerm = isNoTermDebt(d);
                   const today = new Date();
                   const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
                   const thisMonthDue = new Date(today.getFullYear(), today.getMonth(), d.day || 20);
@@ -1444,8 +1497,8 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                   const diffDays = Math.round((nextDue.getTime() - todayDateOnly.getTime()) / (1000 * 60 * 60 * 24));
 
                   const shortCatTag: Record<DebtCategory, string> = {
-                    type1: 'L1 • Vay lãi',
-                    type2: 'L2 • Trả góp',
+                    type1: isNoTerm ? 'L1 • Không kỳ hạn' : 'L1 • Vay lãi',
+                    type2: isNoTerm ? 'L2 • Không kỳ hạn' : 'L2 • Trả góp',
                     type_free: 'L3 • Vay tự do',
                     type3: 'L4 • Định kỳ',
                     type4: 'L5 • Sinh hoạt',
@@ -1458,9 +1511,9 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                     totalPrincipal > 0 ? Math.min(100, Math.round((paidPrincipal / totalPrincipal) * 100)) : 0;
 
                   const nextDueDateFormatted =
-                    d.category === 'type_free' ? 'Linh hoạt' : nextDue.toLocaleDateString('vi-VN');
+                    isNoTerm || d.category === 'type_free' ? 'Linh hoạt' : nextDue.toLocaleDateString('vi-VN');
                   const finalMaturity =
-                    d.startDate && d.termMonths ? calculateMaturityDate(d.startDate, d.termMonths) : '';
+                    !isNoTerm && d.startDate && d.termMonths ? calculateMaturityDate(d.startDate, d.termMonths) : '';
 
                   const freqLabel =
                     d.frequency === 'annual'
@@ -1472,7 +1525,9 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                       : '/th';
 
                   const payAmount =
-                    d.category === 'type1'
+                    isNoTerm
+                      ? 0
+                      : d.category === 'type1'
                       ? d.monthlyBefore
                       : d.category === 'type2'
                       ? d.monthlyBefore || d.installmentAmount || 0
@@ -1538,9 +1593,9 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                           <span className="text-[8.5px] text-slate-400 block font-medium leading-tight">Chi trả định kỳ</span>
                           <div className="flex items-baseline gap-1">
                             <span className="text-xs font-black text-rose-600">
-                              {d.category === 'type_free' ? 'Linh hoạt' : `-${formatVND(payAmount, isPrivacyMode)}`}
+                              {isNoTerm || d.category === 'type_free' ? 'Linh hoạt' : `-${formatVND(payAmount, isPrivacyMode)}`}
                             </span>
-                            {d.category !== 'type_free' && (
+                            {!isNoTerm && d.category !== 'type_free' && (
                               <span className="text-[8.5px] text-slate-400">{freqLabel}</span>
                             )}
                           </div>
@@ -1550,7 +1605,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                           <span className="text-[8.5px] text-slate-400 block font-medium leading-tight">Kỳ hạn kế tiếp</span>
                           <div className="flex items-center justify-end gap-1">
                             <span className="text-[11px] font-bold text-slate-800">{nextDueDateFormatted}</span>
-                            {d.category !== 'type_free' && d.status !== 'Đã tất toán' && (
+                            {!isNoTerm && d.category !== 'type_free' && d.status !== 'Đã tất toán' && (
                               <span
                                 className={`px-1 py-0.2 rounded text-[8px] font-bold ${
                                   diffDays === 0
@@ -1588,7 +1643,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                       )}
 
                       {/* Row 3.5: Thông tin ngày vay, thời hạn, hết ưu đãi, đáo hạn */}
-                      {(d.startDate || finalMaturity || d.termMonths || (d.category === 'type1' && (d.promoEndDate || d.promoMonths))) && (
+                      {(d.startDate || finalMaturity || (!isNoTerm && d.termMonths) || (!isNoTerm && d.category === 'type1' && (d.promoEndDate || d.promoMonths))) && (
                         <div className="pt-1 border-t border-slate-200/70 flex flex-wrap items-center gap-1 text-[9px]">
                           {d.startDate && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-medium whitespace-nowrap">
@@ -1596,17 +1651,17 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                               <span>Vay: {formatDateVN(d.startDate)}</span>
                             </span>
                           )}
-                          {d.termMonths && (
+                          {!isNoTerm && d.termMonths && (
                             <span className="px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-700 font-medium whitespace-nowrap">
                               Hạn: {d.termMonths}T
                             </span>
                           )}
-                          {finalMaturity && d.category !== 'type_free' && (
+                          {!isNoTerm && finalMaturity && d.category !== 'type_free' && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-slate-100 border border-slate-300 text-slate-800 font-bold whitespace-nowrap">
                               <span>Đáo hạn: {finalMaturity}</span>
                             </span>
                           )}
-                          {d.category === 'type1' && (d.promoEndDate || (d.startDate && d.promoMonths)) && (
+                          {!isNoTerm && d.category === 'type1' && (d.promoEndDate || (d.startDate && d.promoMonths)) && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-orange-50 border border-orange-200 text-orange-900 font-bold whitespace-nowrap">
                               <span>Hết ƯĐ: {formatDateVN(d.promoEndDate) || calculateMaturityDate(d.startDate, d.promoMonths)}</span>
                             </span>
@@ -1617,7 +1672,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                       {/* Row 4: Action đóng nhanh (nếu chưa tất toán) */}
                       {d.status !== 'Đã tất toán' && (
                         <div className="pt-1 border-t border-slate-200/70 flex items-center justify-end gap-1.5">
-                          {d.category === 'type_free' ? (
+                          {isNoTerm || d.category === 'type_free' ? (
                             <button
                               onClick={() => handlePayCustom(d)}
                               className="px-2 py-0.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded text-[9.5px] font-bold transition cursor-pointer"
@@ -1664,7 +1719,9 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    db.debts.map((d, index) => {
+                    db.debts.map((rawD, index) => {
+                      const d = repairDebtPeriodicAmount(rawD);
+                      const isNoTerm = isNoTermDebt(d);
                       const today = new Date();
                       const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
                       const thisMonthDue = new Date(today.getFullYear(), today.getMonth(), d.day || 20);
@@ -1675,8 +1732,8 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                       const diffDays = Math.round((nextDue.getTime() - todayDateOnly.getTime()) / (1000 * 60 * 60 * 24));
 
                       const shortCatTag: Record<DebtCategory, string> = {
-                        type1: 'Loại 1 • Vay có lãi',
-                        type2: 'Loại 2 • Trả góp',
+                        type1: isNoTerm ? 'Loại 1 • Không kỳ hạn' : 'Loại 1 • Vay có lãi',
+                        type2: isNoTerm ? 'Loại 2 • Không kỳ hạn' : 'Loại 2 • Trả góp',
                         type_free: 'Loại 3 • Vay tự do',
                         type3: 'Loại 4 • Chi phí dài hạn',
                         type4: 'Loại 5 • Sinh hoạt phí',
@@ -1689,9 +1746,9 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                         totalPrincipal > 0 ? Math.min(100, Math.round((paidPrincipal / totalPrincipal) * 100)) : 0;
 
                       const nextDueDateFormatted =
-                        d.category === 'type_free' ? 'Linh hoạt' : nextDue.toLocaleDateString('vi-VN');
+                        isNoTerm || d.category === 'type_free' ? 'Linh hoạt' : nextDue.toLocaleDateString('vi-VN');
                       const finalMaturity =
-                        d.startDate && d.termMonths ? calculateMaturityDate(d.startDate, d.termMonths) : '';
+                        !isNoTerm && d.startDate && d.termMonths ? calculateMaturityDate(d.startDate, d.termMonths) : '';
 
                       const freqLabel =
                         d.frequency === 'annual'
@@ -1731,7 +1788,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                               <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded text-xs">
                                 {nextDueDateFormatted}
                               </span>
-                              {d.category !== 'type_free' && d.status !== 'Đã tất toán' && (
+                              {!isNoTerm && d.category !== 'type_free' && d.status !== 'Đã tất toán' && (
                                 <>
                                   {diffDays >= 0 && diffDays <= 3 && (
                                     <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-700 border border-rose-300 ml-1 animate-pulse">
@@ -1750,14 +1807,14 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                               {d.startDate && (
                                 <span>Bắt đầu: {formatDateVN(d.startDate)}</span>
                               )}
-                              {finalMaturity && d.category !== 'type_free' && (
+                              {!isNoTerm && finalMaturity && d.category !== 'type_free' && (
                                 <>
                                   <span className="text-slate-300">→</span>
                                   <span className="text-slate-800 font-semibold">Đáo hạn: {finalMaturity}</span>
                                 </>
                               )}
                             </div>
-                            {d.category === 'type1' && (
+                            {!isNoTerm && d.category === 'type1' && (
                               <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-900 border border-orange-200">
                                 <Calendar className="w-3 h-3 text-orange-600" />
                                 <span>Hết ưu đãi lãi:</span>
@@ -1768,7 +1825,14 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                             )}
                           </td>
                           <td className="p-3 text-right min-w-[210px]">
-                            {d.category === 'type1' ? (
+                            {isNoTerm ? (
+                              <div>
+                                <span className="font-black text-purple-700 text-xs">Trả linh hoạt</span>
+                                <span className="ml-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100 text-purple-800">
+                                  0% Lãi
+                                </span>
+                              </div>
+                            ) : d.category === 'type1' ? (
                               <div className="space-y-1">
                                 <div className="flex items-center justify-end space-x-1.5 leading-tight">
                                   <span className="font-black text-emerald-700 text-xs">
@@ -1856,7 +1920,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                             </div>
                             {d.status !== 'Đã tất toán' && (
                               <div>
-                                {d.category === 'type_free' ? (
+                                {isNoTerm || d.category === 'type_free' ? (
                                   <button
                                     onClick={() => handlePayCustom(d)}
                                     className="inline-flex items-center px-2 py-0.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded text-[10px] font-bold transition cursor-pointer"

@@ -1,7 +1,15 @@
 import XLSX from 'xlsx-js-style';
 import ExcelJS from 'exceljs';
 import { Asset, AssetLevel, AssetType, Debt, DebtCategory, Goal, GoalGroup, DatabaseState, AssetTransaction } from '../types';
-import { normalizeDateStr, formatDateVN, parseFormattedDecimal, calculateMaturityDateISO } from './format';
+import {
+  normalizeDateStr,
+  formatDateVN,
+  parseFormattedDecimal,
+  calculateMaturityDateISO,
+  isNoTermDebt,
+  isNoTermAsset,
+  repairDebtPeriodicAmount,
+} from './format';
 
 export interface ParsedAssetItem {
   id?: number;
@@ -22,6 +30,7 @@ export interface ParsedAssetItem {
   cashflow?: number;
   divCash?: number;
   note?: string;
+  isNoTerm?: boolean;
 }
 
 export interface ParsedDebtItem {
@@ -43,6 +52,7 @@ export interface ParsedDebtItem {
   day?: number;
   status: 'Chưa tất toán' | 'Đã tất toán';
   note?: string;
+  isNoTerm?: boolean;
 }
 
 export interface ParsedGoalItem {
@@ -144,9 +154,30 @@ export const parseAssetTypeString = (val: string, level: AssetLevel): AssetType 
 // Map Debt category string
 export const parseDebtCategoryString = (val: string): DebtCategory => {
   const s = String(val || '').toLowerCase().trim();
+  if (
+    s.includes('người thân') ||
+    s.includes('nguoi than') ||
+    s.includes('tự do') ||
+    s.includes('tu do') ||
+    s.includes('mượn') ||
+    s.includes('muon') ||
+    s.includes('bạn bè') ||
+    s.includes('ban be') ||
+    s.includes('chị ') ||
+    s.includes('anh ') ||
+    s.includes('bố ') ||
+    s.includes('mẹ ') ||
+    s.includes('ông bà') ||
+    s.includes('không kỳ hạn') ||
+    s.includes('khong ky han') ||
+    s.includes('loại 3') ||
+    s.includes('loai 3') ||
+    s === '3'
+  ) {
+    return 'type_free';
+  }
   if (s.includes('1') || s.includes('có lãi') || s.includes('ngân hàng') || s.includes('thế chấp') || s.includes('bđs')) return 'type1';
   if (s.includes('2') || s.includes('trả góp') || s.includes('0%')) return 'type2';
-  if (s.includes('3') || s.includes('người thân') || s.includes('tự do') || s.includes('mượn') || s.includes('bạn bè')) return 'type_free';
   if (s.includes('4') || s.includes('định kỳ') || s.includes('bảo hiểm') || s.includes('thuê nhà')) return 'type3';
   if (s.includes('5') || s.includes('sinh hoạt') || s.includes('chi tiêu') || s.includes('tiêu dùng')) return 'type4';
   return 'type1';
@@ -1006,6 +1037,7 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
         ? 'Tầng 2: Tăng trưởng'
         : 'Tầng 3: Rủi ro';
 
+    const isNoTerm = isNoTermAsset(item);
     rows1.push([
       `TS-${item.id}`,
       idx + 1,
@@ -1016,8 +1048,8 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
       item.costPrice || item.amount || 0,
       item.rate ? item.rate / 100 : 0,
       item.startDate ? formatDateVN(item.startDate) : '',
-      item.termMonths || 0,
-      item.maturityDate ? formatDateVN(item.maturityDate) : '',
+      isNoTerm ? 'Không kỳ hạn' : item.termMonths || 0,
+      isNoTerm ? 'Không kỳ hạn' : item.maturityDate ? formatDateVN(item.maturityDate) : '',
       item.quantity || 1,
       item.cashflow || 0,
       item.divCash || 0,
@@ -1065,16 +1097,18 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
   ];
 
   db.debts.forEach((item, idx) => {
-    const freqName =
-      item.frequency === 'quarterly'
-        ? 'Hàng quý'
-        : item.frequency === 'biannual'
-        ? '6 tháng'
-        : item.frequency === 'annual'
-        ? 'Hàng năm'
-        : item.frequency === 'flexible'
-        ? 'Linh hoạt'
-        : 'Hàng tháng';
+    const isNoTerm = isNoTermDebt(item);
+    const freqName = isNoTerm
+      ? 'Linh hoạt'
+      : item.frequency === 'quarterly'
+      ? 'Hàng quý'
+      : item.frequency === 'biannual'
+      ? '6 tháng'
+      : item.frequency === 'annual'
+      ? 'Hàng năm'
+      : item.frequency === 'flexible'
+      ? 'Linh hoạt'
+      : 'Hàng tháng';
 
     rows2.push([
       `NO-${item.id}`,
@@ -1084,15 +1118,15 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
       item.startDate ? formatDateVN(item.startDate) : '',
       item.amount || 0,
       item.paidPrincipal || 0,
-      item.termMonths || 0,
+      isNoTerm ? 'Không kỳ hạn' : item.termMonths || 0,
       freqName,
-      item.monthlyBefore || 0,
+      isNoTerm ? 0 : item.monthlyBefore || 0,
       item.promoRate ? item.promoRate / 100 : 0,
       item.promoMonths || 0,
       item.promoEndDate ? formatDateVN(item.promoEndDate) : '',
       item.normalRate ? item.normalRate / 100 : 0,
-      item.monthlyAfter || item.monthlyBefore || 0,
-      item.day || 1,
+      isNoTerm ? 0 : item.monthlyAfter || item.monthlyBefore || 0,
+      isNoTerm ? '' : item.day || 1,
       item.status || 'Chưa tất toán',
       item.note || '',
     ]);
@@ -1376,10 +1410,17 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
     const qtyNum = colQty ? parseQuantityValue(colQty) : 1;
     const cashflowNum = colCashflow ? parseAmountValue(colCashflow) : 0;
     const divCashNum = colDivCash ? parseAmountValue(colDivCash) : 0;
-    const termNum = colTerm ? parseInt(String(colTerm), 10) : undefined;
+    const colTermStr = String(colTerm || '').toLowerCase().trim();
+    const isNoTerm =
+      colTermStr.includes('không') ||
+      colTermStr.includes('khong') ||
+      colTermStr.includes('kkh') ||
+      colTermStr.includes('linh hoạt') ||
+      colTermStr === '0';
+    const termNum = isNoTerm ? undefined : parseInt(colTermStr, 10) || undefined;
     const startDateVal = parseDateValue(colStartDate);
-    let maturityVal = parseDateValue(colMaturityDate);
-    if ((assetType === 'saving' || assetType === 'bond' || assetType === 'peer_lending') && startDateVal && termNum && termNum > 0) {
+    let maturityVal = isNoTerm ? undefined : parseDateValue(colMaturityDate);
+    if (!isNoTerm && (assetType === 'saving' || assetType === 'bond' || assetType === 'peer_lending') && startDateVal && termNum && termNum > 0) {
       maturityVal = calculateMaturityDateISO(startDateVal, termNum);
     }
 
@@ -1393,12 +1434,13 @@ export const parseRawRowsToAssets = (rawRows: any[][]): ParsedAssetItem[] => {
       costPrice: rawCostPriceNum,
       rate: rateNum > 0 ? rateNum : undefined,
       startDate: startDateVal || undefined,
-      termMonths: termNum && termNum > 0 ? termNum : undefined,
+      termMonths: termNum,
       maturityDate: maturityVal || undefined,
       quantity: qtyNum > 0 ? qtyNum : undefined,
       cashflow: cashflowNum > 0 ? cashflowNum : undefined,
       divCash: divCashNum > 0 ? divCashNum : undefined,
       note: colNote.trim() || undefined,
+      isNoTerm: isNoTerm || undefined,
     });
   }
 
@@ -1429,13 +1471,13 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
         else if (lower.includes('đã trả')) colMap.paidPrincipal = idx;
         else if (lower.includes('kỳ hạn')) colMap.termMonths = idx;
         else if (lower.includes('kỳ chi trả') || lower.includes('chu kỳ')) colMap.frequency = idx;
-        else if (lower.includes('trong ưu đãi') || lower.includes('hàng tháng')) colMap.monthlyBefore = idx;
+        else if (lower.includes('ngày trả') || lower.includes('ngày chốt') || lower.includes('ngày đến hạn') || lower.includes('(1-31)')) colMap.day = idx;
+        else if (lower.includes('trong ưu đãi') || lower.includes('tiền trả') || lower.includes('chi trả/kỳ') || lower.includes('chi trả mỗi kỳ') || (lower.includes('hàng tháng') && !lower.includes('ngày'))) colMap.monthlyBefore = idx;
         else if (lower.includes('lãi suất ưu đãi') || lower.includes('ưu đãi (%')) colMap.promoRate = idx;
         else if (lower.includes('thời hạn ưu đãi') || lower.includes('tháng ưu đãi')) colMap.promoMonths = idx;
         else if (lower.includes('hết ưu đãi')) colMap.promoEndDate = idx;
         else if (lower.includes('sau ưu đãi (%') || lower.includes('thả nổi')) colMap.normalRate = idx;
         else if (lower.includes('sau ưu đãi (vnđ') || lower.includes('tiền trả sau ưu đãi')) colMap.monthlyAfter = idx;
-        else if (lower.includes('ngày trả')) colMap.day = idx;
         else if (lower.includes('trạng thái')) colMap.status = idx;
         else if (lower.includes('ghi chú')) colMap.note = idx;
       });
@@ -1552,25 +1594,63 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     const parsedId = parseIdValue(colId);
     const category = parseDebtCategoryString(colCat || cleanName);
     const paidNum = parseAmountValue(colPaid);
-    const termNum = parseInt(String(colTerm || 0), 10) || undefined;
+    const colTermStr = String(colTerm || '').toLowerCase().trim();
+    const colFreqStr = String(colFreq || '').toLowerCase().trim();
+    const colNoteStr = String(colNote || '').toLowerCase().trim();
+
+    // Nhận diện khoản không kỳ hạn
+    const isNoTerm =
+      category === 'type_free' ||
+      colFreqStr.includes('linh hoạt') ||
+      colFreqStr.includes('không kỳ hạn') ||
+      colFreqStr.includes('khong ky han') ||
+      colTermStr.includes('không') ||
+      colTermStr.includes('khong') ||
+      colTermStr.includes('kkh') ||
+      colTermStr === '0' ||
+      (category === 'type2' && (!colTerm || colTerm === '0' || colTerm === 0)) ||
+      colNoteStr.includes('khi nào có') ||
+      colNoteStr.includes('khi nao co') ||
+      colNoteStr.includes('không kỳ hạn') ||
+      colNoteStr.includes('khong ky han');
+
+    let freq: 'monthly' | 'quarterly' | 'biannual' | 'annual' | 'flexible' = isNoTerm ? 'flexible' : 'monthly';
+    if (!isNoTerm) {
+      if (colFreqStr.includes('quý')) freq = 'quarterly';
+      else if (colFreqStr.includes('6 tháng') || colFreqStr.includes('nửa năm')) freq = 'biannual';
+      else if (colFreqStr.includes('năm')) freq = 'annual';
+    }
+
+    const termNum = isNoTerm ? undefined : (parseInt(colTermStr, 10) || undefined);
     const pRate = parseRateValue(colPromoRate);
     const nRate = parseRateValue(colNormalRate);
     const pMonths = parseInt(String(colPromoMonths || 0), 10) || undefined;
-    const dayNum = parseInt(String(colDay || 1), 10) || 1;
+    // Đã không có kỳ hạn thì không có ngày đến hạn (day = undefined)
+    const dayNum = isNoTerm ? undefined : (parseInt(String(colDay || 1), 10) || 1);
     const statusVal: 'Chưa tất toán' | 'Đã tất toán' =
       String(colStatus).toLowerCase().includes('đã') ? 'Đã tất toán' : 'Chưa tất toán';
-
-    let freq: 'monthly' | 'quarterly' | 'biannual' | 'annual' | 'flexible' = 'monthly';
-    const lowerFreq = String(colFreq).toLowerCase();
-    if (lowerFreq.includes('quý')) freq = 'quarterly';
-    else if (lowerFreq.includes('6 tháng') || lowerFreq.includes('nửa năm')) freq = 'biannual';
-    else if (lowerFreq.includes('năm')) freq = 'annual';
-    else if (lowerFreq.includes('linh hoạt')) freq = 'flexible';
 
     const startDateVal = parseDateValue(colStartDate);
     let promoEndDateVal = parseDateValue(colPromoEndDate);
     if (category === 'type1' && startDateVal && pMonths && pMonths > 0) {
       promoEndDateVal = calculateMaturityDateISO(startDateVal, pMonths);
+    }
+
+    // Tự động sửa lỗi 1đ do cột Excel map nhầm
+    let finalMonthlyBefore = isNoTerm ? 0 : monthlyBeforeNum;
+    let finalMonthlyAfter = isNoTerm ? 0 : monthlyAfterNum;
+    if (!isNoTerm && finalMonthlyBefore === 1 && amountNum > 1000) {
+      if (category === 'type3' || category === 'type4') {
+        finalMonthlyBefore = amountNum;
+        finalMonthlyAfter = amountNum;
+      } else if (category === 'type1') {
+        const pPart = termNum ? Math.round(amountNum / termNum) : 0;
+        const pInt = pRate ? Math.round((amountNum * (pRate / 100)) / 12) : 0;
+        finalMonthlyBefore = pPart + pInt > 0 ? pPart + pInt : amountNum;
+      } else if (category === 'type2') {
+        finalMonthlyBefore = termNum && termNum > 1 ? Math.round(amountNum / termNum) : 0;
+        finalMonthlyAfter = finalMonthlyBefore;
+      }
     }
 
     debts.push({
@@ -1587,11 +1667,12 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       normalRate: nRate > 0 ? nRate : undefined,
       promoMonths: pMonths,
       promoEndDate: promoEndDateVal || undefined,
-      monthlyBefore: monthlyBeforeNum,
-      monthlyAfter: monthlyAfterNum,
+      monthlyBefore: finalMonthlyBefore,
+      monthlyAfter: finalMonthlyAfter,
       day: dayNum,
       status: statusVal,
       note: colNote.trim() || undefined,
+      isNoTerm: isNoTerm ? true : undefined,
     });
   }
 

@@ -32,6 +32,7 @@ export interface Asset {
   divCash?: number; // Cổ tức tiền mặt (VNĐ/CP/năm)
   updatedAt?: string;
   note?: string;
+  isNoTerm?: boolean; // Không kỳ hạn (cho sổ tiết kiệm/tiền gửi không kỳ hạn)
 }
 
 export interface AssetTransaction {
@@ -72,6 +73,7 @@ export interface Debt {
   note?: string;
   status: 'Chưa tất toán' | 'Đã tất toán';
   settledDate?: string;
+  isNoTerm?: boolean; // Không kỳ hạn (trả linh hoạt, không có hạn thanh toán tiếp theo)
 }
 
 export type GoalGroup = 'debt' | 'dca' | 'runway' | 'milestone';
