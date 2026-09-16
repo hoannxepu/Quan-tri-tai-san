@@ -50,7 +50,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
   const [debtCat, setDebtCat] = useState<DebtCategory>('type1');
   const [debtName, setDebtName] = useState('');
   const [debtFreq, setDebtFreq] = useState<Debt['frequency']>('monthly');
-  const [debtDay, setDebtDay] = useState(20);
+  const [debtDayStr, setDebtDayStr] = useState('20');
   const [debtStartDate, setDebtStartDate] = useState('');
   const [debtNote, setDebtNote] = useState('');
   const [debtIsNoTerm, setDebtIsNoTerm] = useState(false);
@@ -95,13 +95,13 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
   const totalMonthlyInflow = (db.salaryIncome || 0) + (db.otherIncome || 0) + totalPassiveInflow;
   const incomeBenchmark = getVietnamIncomeBenchmark(totalMonthlyInflow);
 
-  // Categorize debts & calculate monthly outflows
+  // Categorize debts & calculate monthly outflows & total outstanding debt
   const catStats = {
-    type1: { label: 'Loại 1', name: 'Nợ vay có lãi (Ngân hàng, mua nhà...)', count: 0, monthly: 0, tag: 'bg-rose-50 text-rose-700 border-rose-200' },
-    type2: { label: 'Loại 2', name: 'Nợ trả góp định kỳ (0% lãi)', count: 0, monthly: 0, tag: 'bg-amber-50 text-amber-700 border-amber-200' },
-    type_free: { label: 'Loại 3', name: 'Mượn nợ người thân / Vay tự do (Linh hoạt)', count: 0, monthly: 0, tag: 'bg-purple-50 text-purple-700 border-purple-200' },
-    type3: { label: 'Loại 4', name: 'Chi phí định kỳ không có gốc (Bảo hiểm, thuê nhà...)', count: 0, monthly: 0, tag: 'bg-blue-50 text-blue-700 border-blue-200' },
-    type4: { label: 'Loại 5', name: 'Chi phí sinh hoạt thường xuyên', count: 0, monthly: 0, tag: 'bg-slate-100 text-slate-600 border-slate-200' },
+    type1: { label: 'Loại 1', name: 'Nợ vay có lãi (Ngân hàng, mua nhà...)', count: 0, monthly: 0, tag: 'bg-rose-50 text-rose-700 border-rose-200', outstanding: 0 },
+    type2: { label: 'Loại 2', name: 'Nợ trả góp định kỳ (0% lãi)', count: 0, monthly: 0, tag: 'bg-amber-50 text-amber-700 border-amber-200', outstanding: 0 },
+    type_free: { label: 'Loại 3', name: 'Mượn nợ người thân / Vay tự do (Linh hoạt)', count: 0, monthly: 0, tag: 'bg-purple-50 text-purple-700 border-purple-200', outstanding: 0 },
+    type3: { label: 'Loại 4', name: 'Chi phí định kỳ không có gốc (Bảo hiểm, thuê nhà...)', count: 0, monthly: 0, tag: 'bg-blue-50 text-blue-700 border-blue-200', outstanding: 0 },
+    type4: { label: 'Loại 5', name: 'Chi phí sinh hoạt thường xuyên', count: 0, monthly: 0, tag: 'bg-slate-100 text-slate-600 border-slate-200', outstanding: 0 },
   };
 
   let totalMonthlyOutflow = 0;
@@ -109,12 +109,27 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
   let totalInterestMonthly = 0;
   let totalPeriodicMonthly = 0;
   let totalLivingMonthly = 0;
+  let totalOutstandingDebt = 0;
+  let activeDebtCount = 0;
 
   db.debts.forEach((rawD) => {
     const d = repairDebtPeriodicAmount(rawD);
     if (d.status !== 'Đã tất toán') {
+      const remaining = Math.max(0, (d.amount || 0) - (d.paidPrincipal || 0));
+      if (d.category === 'type1' || d.category === 'type2' || d.category === 'type_free') {
+        totalOutstandingDebt += remaining;
+        activeDebtCount += 1;
+        if (catStats[d.category]) {
+          catStats[d.category].outstanding += remaining;
+        }
+      }
+
       if (isNoTermDebt(d)) {
-        catStats.type_free.count += 1;
+        if (d.category === 'type_free') {
+          catStats.type_free.count += 1;
+        } else if (catStats[d.category]) {
+          catStats[d.category].count += 1;
+        }
       } else {
         let m = d.monthlyBefore || d.installmentAmount || d.periodicAmount || 0;
         if (d.frequency === 'annual') m = Math.round(m / 12);
@@ -280,14 +295,14 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
     setDebtCat(d.category);
     setDebtName(d.name);
     setDebtFreq(noTerm ? 'flexible' : d.frequency);
-    setDebtDay(d.day || 20);
+    setDebtDayStr(d.day !== undefined && d.day !== null ? String(d.day) : '20');
     setDebtStartDate(d.startDate || '');
     setDebtNote(d.note || '');
 
-    setDebtAmountStr(formatNumberString(d.amount));
+    setDebtAmountStr(d.amount ? formatNumberString(d.amount) : '');
     setDebtTermMonthsStr(noTerm ? '' : (d.termMonths ? String(d.termMonths) : ''));
-    setInstallmentAmountStr(d.installmentAmount ? formatNumberString(d.installmentAmount) : '');
-    setPeriodicAmountStr(d.periodicAmount ? formatNumberString(d.periodicAmount) : '');
+    setInstallmentAmountStr(d.installmentAmount && d.installmentAmount > 0 ? formatNumberString(d.installmentAmount) : '');
+    setPeriodicAmountStr(d.periodicAmount && d.periodicAmount > 0 ? formatNumberString(d.periodicAmount) : (d.monthlyBefore && d.monthlyBefore > 0 ? formatNumberString(d.monthlyBefore) : ''));
     setPromoMonthsStr(d.promoMonths ? String(d.promoMonths) : '');
     setPromoRateStr(d.promoRate ? String(d.promoRate) : '');
     setNormalRateStr(d.normalRate ? String(d.normalRate) : '');
@@ -304,7 +319,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
     setDebtCat('type1');
     setDebtName('');
     setDebtFreq('monthly');
-    setDebtDay(20);
+    setDebtDayStr('20');
     setDebtStartDate('');
     setDebtNote('');
     setDebtIsNoTerm(false);
@@ -385,6 +400,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
     }
 
     const existingDebt = editingDebtId ? db.debts.find((d) => d.id === editingDebtId) : null;
+    const parsedDay = debtDayStr.trim() === '' ? 20 : Math.min(31, Math.max(1, parseInt(debtDayStr, 10) || 20));
 
     const newDebt: Debt = {
       id: editingDebtId || Date.now(),
@@ -392,7 +408,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
       name: debtName.trim(),
       frequency: isActuallyNoTerm ? 'flexible' : debtFreq,
       startDate: debtCat !== 'type4' ? debtStartDate : undefined,
-      day: isActuallyNoTerm ? undefined : debtDay,
+      day: isActuallyNoTerm ? undefined : parsedDay,
       amount,
       termMonths: isActuallyNoTerm ? undefined : (termMonths || undefined),
       installmentAmount: isActuallyNoTerm ? undefined : (installmentAmount || undefined),
@@ -552,7 +568,7 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
             <div>
               <div className="flex items-center justify-between gap-1">
                 <span className="text-[9px] font-bold text-rose-800 uppercase tracking-wide truncate">
-                  Tổng Chi
+                  Nghĩa Vụ Chi
                 </span>
                 <span
                   className={`px-1 py-0.2 rounded text-[8.5px] font-bold border shrink-0 ${
@@ -572,6 +588,10 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
             </div>
 
             <div className="mt-1.5 pt-1 border-t border-rose-200/60 text-[9px] space-y-0.5 text-rose-950">
+              <div className="flex items-center justify-between bg-white/90 border border-rose-200/90 px-1.5 py-0.5 rounded font-bold text-rose-900 shadow-2xs">
+                <span className="truncate text-[8.5px]">Tổng dư nợ:</span>
+                <span className="truncate text-[8.5px] font-black text-rose-700">{formatVND(totalOutstandingDebt, isPrivacyMode)}</span>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-600 truncate">Gốc + lãi:</span>
                 <span className="font-bold text-rose-700 truncate">{formatVND(totalPrincipalMonthly + totalInterestMonthly, isPrivacyMode)}</span>
@@ -805,6 +825,17 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
               </div>
             </div>
 
+            {/* Thống kê Tổng Dư Nợ */}
+            <div className="mt-2.5 py-1.5 px-3 bg-white/85 border border-rose-200/90 rounded-lg flex items-center justify-between shadow-2xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11.5px] font-bold text-rose-950">Tổng Dư Nợ:</span>
+                <span className="text-[10px] font-medium text-slate-500">({activeDebtCount} khoản)</span>
+              </div>
+              <span className="text-xs lg:text-[13px] font-black text-rose-700 tracking-tight">
+                {formatVND(totalOutstandingDebt, isPrivacyMode)}
+              </span>
+            </div>
+
             <div className="mt-2 pt-2 border-t border-rose-200/60 text-[11px] space-y-1 text-rose-900">
               <div className="flex items-center justify-between">
                 <span className="text-slate-600 font-medium">Gốc & góp:</span>
@@ -911,8 +942,8 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
-                            <span className="text-[10px] text-slate-400">Chi trả định kỳ:</span>
-                            <span className="font-bold text-purple-700 text-xs">0 ₫ (Linh hoạt)</span>
+                            <span className="text-[10px] text-slate-500">Dư nợ mượn:</span>
+                            <span className="font-bold text-purple-700 text-xs">{formatVND(item.outstanding, isPrivacyMode)}</span>
                           </div>
                         </div>
                       );
@@ -953,6 +984,13 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                             </span>
                           </div>
                         </div>
+
+                        {item.outstanding > 0 && (
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5 px-0.5">
+                            <span>Dư nợ gốc còn lại:</span>
+                            <span className="font-bold text-rose-600">{formatVND(item.outstanding, isPrivacyMode)}</span>
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 text-xs">
                           <div>
@@ -1012,18 +1050,20 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                       if (item.count > 0) {
                         return (
                           <tr key={key} className="hover:bg-slate-50 transition">
-                            <td className="py-2.5 px-3.5 font-bold text-slate-800 flex items-center gap-2">
-                              <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold border ${item.tag}`}>
-                                {item.label}
-                              </span>
-                              <span>{item.name}</span>
-                              <span className="text-[11px] text-slate-400 font-normal">({item.count} khoản)</span>
+                            <td className="py-2.5 px-3.5 font-bold text-slate-800">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold border ${item.tag}`}>
+                                  {item.label}
+                                </span>
+                                <span>{item.name}</span>
+                                <span className="text-[11px] text-slate-400 font-normal">({item.count} khoản)</span>
+                              </div>
                             </td>
                             <td className="py-2.5 px-3.5 text-right font-bold text-purple-700 whitespace-nowrap">
                               0 ₫ (Linh hoạt)
                             </td>
                             <td className="py-2.5 px-3.5 text-right text-slate-500 font-medium whitespace-nowrap text-[11px]">
-                              Không áp lực định kỳ
+                              Dư nợ mượn: <span className="font-bold text-purple-700">{formatVND(item.outstanding, isPrivacyMode)}</span>
                             </td>
                             <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                               <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold border bg-purple-50 text-purple-700 border-purple-200">
@@ -1054,12 +1094,19 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
 
                       return (
                         <tr key={key} className="hover:bg-slate-50 transition">
-                          <td className="py-2.5 px-3.5 font-bold text-slate-800 flex items-center gap-2">
-                            <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold border ${item.tag}`}>
-                              {item.label}
-                            </span>
-                            <span>{item.name}</span>
-                            <span className="text-[11px] text-slate-400 font-normal">({item.count} khoản)</span>
+                          <td className="py-2.5 px-3.5 font-bold text-slate-800">
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold border ${item.tag}`}>
+                                {item.label}
+                              </span>
+                              <span>{item.name}</span>
+                              <span className="text-[11px] text-slate-400 font-normal">({item.count} khoản)</span>
+                            </div>
+                            {item.outstanding > 0 && (
+                              <div className="text-[10.5px] text-slate-500 font-normal mt-0.5 ml-8">
+                                Dư nợ gốc: <span className="font-bold text-rose-600">{formatVND(item.outstanding, isPrivacyMode)}</span>
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3.5 text-right font-extrabold text-rose-600 whitespace-nowrap">
                             {formatVND(m, isPrivacyMode)}
@@ -1147,15 +1194,24 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                 </button>
               </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 1. Phân loại và tên khoản nợ */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 1. Phân Loại Nhóm Nghĩa Vụ Tài Chính
               </label>
               <select
                 value={debtCat}
-                onChange={(e) => setDebtCat(e.target.value as any)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-rose-500"
+                onChange={(e) => {
+                  const nextCat = e.target.value as DebtCategory;
+                  setDebtCat(nextCat);
+                  if (nextCat === 'type_free') {
+                    setDebtIsNoTerm(true);
+                    setDebtFreq('flexible');
+                    setDebtTermMonthsStr('');
+                  }
+                }}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-rose-500 focus:bg-white"
               >
                 <option value="type1">Loại 1: Nghĩa vụ nợ vay có lãi (Ngân hàng, mua nhà, xe...)</option>
                 <option value="type2">Loại 2: Nợ trả góp định kỳ (0% lãi, trừ đều hàng tháng...)</option>
@@ -1174,254 +1230,431 @@ export const TabDebts: React.FC<TabDebtsProps> = ({
                 value={debtName}
                 onChange={(e) => setDebtName(e.target.value)}
                 placeholder="VD: Vay mua nhà VCB / Trả góp thẻ tín dụng..."
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
               />
             </div>
           </div>
 
-          <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-xs text-rose-900 flex items-center">
+          {/* Banner mô tả phân loại */}
+          <div className="bg-rose-50/80 border border-rose-200/90 p-2.5 rounded-xl text-xs text-rose-900 leading-relaxed">
             {debtCategoryDescriptions[debtCat]}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2">
-            {(debtCat === 'type1' || debtCat === 'type2' || debtCat === 'type_free') && (
+          {/* Segmented Toggle: Chọn Có kỳ hạn vs Không kỳ hạn cho Loại 1 & Loại 2 */}
+          {(debtCat === 'type1' || debtCat === 'type2') && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 bg-slate-50/90 border border-slate-200 rounded-xl">
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  {debtCat === 'type_free' ? 'Tổng Tiền Mượn Gốc (VNĐ)' : 'Tổng Tiền Gốc / Hạn Mức (VNĐ)'}
-                </label>
-                <input
-                  type="text"
-                  value={debtAmountStr}
-                  onChange={(e) => setDebtAmountStr(formatNumberString(e.target.value))}
-                  placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white"
-                />
+                <span className="text-xs font-bold text-slate-800">Hình Thức Kỳ Hạn Trả Nợ</span>
+                <p className="text-[11px] text-slate-500">Chọn trả định kỳ cố định hoặc trả tự do không ép hạn</p>
               </div>
-            )}
+              <div className="inline-flex p-1 bg-slate-200/80 rounded-xl text-xs font-bold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDebtIsNoTerm(false);
+                    if (debtFreq === 'flexible') setDebtFreq('monthly');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    !debtIsNoTerm
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Có kỳ hạn định kỳ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDebtIsNoTerm(true);
+                    setDebtFreq('flexible');
+                    setDebtTermMonthsStr('');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    debtIsNoTerm
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ✨ Không kỳ hạn (Linh hoạt)
+                </button>
+              </div>
+            </div>
+          )}
 
-            {(debtCat === 'type1' || debtCat === 'type2') && (
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center justify-between">
-                  <span>Thời Hạn Tổng (Tháng)</span>
-                  <label className="flex items-center gap-1 cursor-pointer text-[10.5px] text-purple-700 font-bold select-none hover:text-purple-900">
-                    <input
-                      type="checkbox"
-                      checked={debtIsNoTerm}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setDebtIsNoTerm(checked);
-                        if (checked) {
-                          setDebtFreq('flexible');
-                          setDebtTermMonthsStr('');
-                        } else {
-                          setDebtFreq('monthly');
-                        }
-                      }}
-                      className="rounded text-purple-600 focus:ring-0 cursor-pointer w-3.5 h-3.5"
-                    />
-                    <span>Không kỳ hạn</span>
+          {/* Khi KHÔNG KỲ HẠN (Loại 1 / Loại 2 bật không kỳ hạn, hoặc Loại 3 vay tự do) */}
+          {(debtIsNoTerm || debtCat === 'type_free') && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    {debtCat === 'type_free' ? 'Tổng Tiền Mượn Gốc (VNĐ)' : 'Tổng Tiền Gốc / Hạn Mức (VNĐ)'}
                   </label>
-                </label>
-                {debtIsNoTerm ? (
-                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-2.5 text-xs font-bold text-purple-800 flex items-center gap-1.5">
-                    <span>✨ Khoản nợ không kỳ hạn (Linh hoạt)</span>
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      type="number"
-                      value={debtTermMonthsStr}
-                      onChange={(e) => setDebtTermMonthsStr(e.target.value)}
-                      placeholder="VD: 240 (Tháng)"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                    />
-                    {debtStartDate && debtTermMonthsStr && (
-                      <div className="mt-1 text-[9.5px] text-slate-500 font-medium flex items-center gap-1">
-                        <span>🔒 Ngày tất toán hợp đồng:</span>
-                        <span className="font-bold text-slate-800">{calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}</span>
-                      </div>
-                    )}
-                  </>
-                )}
+                  <input
+                    type="text"
+                    value={debtAmountStr}
+                    onChange={(e) => setDebtAmountStr(formatNumberString(e.target.value))}
+                    placeholder="0"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Ngày Bắt Đầu / Vay
+                  </label>
+                  <input
+                    type="date"
+                    value={debtStartDate}
+                    onChange={(e) => setDebtStartDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
               </div>
-            )}
-
-            {debtCat === 'type2' && !debtIsNoTerm && (
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Trả Mỗi Kỳ (VNĐ - trống tự chia)
-                </label>
-                <input
-                  type="text"
-                  value={installmentAmountStr}
-                  onChange={(e) => setInstallmentAmountStr(formatNumberString(e.target.value))}
-                  placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white"
-                />
+              <div className="bg-purple-50/90 border border-purple-200 rounded-xl p-3 text-xs text-purple-900 flex items-center gap-2.5">
+                <span className="text-base shrink-0">✨</span>
+                <span className="leading-relaxed">
+                  <strong>Khoản nợ không kỳ hạn:</strong> Không có hạn tiếp theo cần đóng tiền. Bạn có thể thanh toán linh hoạt bất kỳ lúc nào khi có tài chính.
+                </span>
               </div>
-            )}
+            </div>
+          )}
 
-            {(debtCat === 'type3' || debtCat === 'type4') && (
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Số Tiền Chi Trả Mỗi Kỳ (VNĐ)
-                </label>
-                <input
-                  type="text"
-                  value={periodicAmountStr}
-                  onChange={(e) => setPeriodicAmountStr(formatNumberString(e.target.value))}
-                  placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white"
-                />
+          {/* Khi CÓ KỲ HẠN - LOẠI 2: Nợ trả góp định kỳ 0% lãi */}
+          {debtCat === 'type2' && !debtIsNoTerm && (
+            <div className="space-y-3">
+              {/* Hàng 1: 3 cột cân đối */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Tổng Tiền Gốc / Hạn Mức (VNĐ)
+                  </label>
+                  <input
+                    type="text"
+                    value={debtAmountStr}
+                    onChange={(e) => setDebtAmountStr(formatNumberString(e.target.value))}
+                    placeholder="0"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Thời Hạn Tổng (Tháng)
+                  </label>
+                  <input
+                    type="number"
+                    value={debtTermMonthsStr}
+                    onChange={(e) => setDebtTermMonthsStr(e.target.value)}
+                    placeholder="VD: 12 (Tháng)"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                  {debtStartDate && debtTermMonthsStr && (
+                    <div className="mt-1 text-[9.5px] text-slate-500 font-medium flex items-center gap-1">
+                      <span>🔒 Tất toán hợp đồng:</span>
+                      <span className="font-bold text-slate-800">{calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Số Tiền Trả Mỗi Kỳ (VNĐ)
+                  </label>
+                  <input
+                    type="text"
+                    value={installmentAmountStr}
+                    onChange={(e) => {
+                      const formatted = formatNumberString(e.target.value);
+                      setInstallmentAmountStr(formatted === '0' ? '' : formatted);
+                    }}
+                    placeholder="Tự động chia theo kỳ hạn"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
               </div>
-            )}
 
-            {debtCat !== 'type_free' && !debtIsNoTerm && (
-              <>
+              {/* Hàng 2: 3 cột cân đối */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Chu Kỳ Thanh Toán</label>
                   <select
                     value={debtFreq}
-                    onChange={(e) => {
-                      const val = e.target.value as any;
-                      setDebtFreq(val);
-                      if (val === 'flexible') {
-                        setDebtIsNoTerm(true);
-                        setDebtTermMonthsStr('');
-                      }
-                    }}
+                    onChange={(e) => setDebtFreq(e.target.value as any)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-rose-500"
                   >
                     <option value="monthly">Hàng tháng (Monthly)</option>
                     <option value="quarterly">Hàng quý (Quarterly)</option>
                     <option value="biannual">6 tháng / Nửa năm</option>
                     <option value="annual">Hàng năm (Annual)</option>
-                    <option value="flexible">Không kỳ hạn / Trả linh hoạt</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Ngày Đến Hạn (1-31)</label>
                   <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    value={debtDay}
-                    onChange={(e) => setDebtDay(Number(e.target.value) || 1)}
+                    type="text"
+                    inputMode="numeric"
+                    value={debtDayStr}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      if (!raw) {
+                        setDebtDayStr('');
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (n > 31) setDebtDayStr('31');
+                      else setDebtDayStr(String(n));
+                    }}
                     placeholder="VD: 20"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
                   />
                 </div>
-              </>
-            )}
-
-            {debtIsNoTerm && debtCat !== 'type_free' && (
-              <div className="col-span-1 md:col-span-2 bg-purple-50/90 border border-purple-200 rounded-xl p-2.5 text-[11px] text-purple-900 flex items-center gap-2">
-                <span className="text-sm shrink-0">ℹ️</span>
-                <span>
-                  <strong>Khoản nợ không kỳ hạn:</strong> Không có hạn tiếp theo cần đóng tiền. Bạn có thể thanh toán linh hoạt bất kỳ lúc nào khi có tài chính.
-                </span>
-              </div>
-            )}
-          </div>
-
-          {debtCat === 'type1' && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-1">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Thời Gian Ưu Đãi (Tháng)
-                </label>
-                <input
-                  type="number"
-                  value={promoMonthsStr}
-                  onChange={(e) => setPromoMonthsStr(e.target.value)}
-                  placeholder="VD: 24"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-orange-800 mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>Mốc Hết Ưu Đãi</span>
-                    <span className="text-[9px] px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded font-bold">🔒 Tự động tính</span>
-                  </span>
-                  <span className="text-[10px] text-amber-600 font-normal">
-                    (Khóa không sửa)
-                  </span>
-                </label>
-                <input
-                  type="date"
-                  readOnly={true}
-                  value={
-                    debtStartDate && promoMonthsStr
-                      ? calculateMaturityDateISO(debtStartDate, Number(promoMonthsStr))
-                      : (debtPromoEndDate || '')
-                  }
-                  className="w-full bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-xl p-2.5 text-xs cursor-not-allowed select-none outline-none shadow-2xs"
-                  title="Mốc hết hạn ưu đãi được tự động tính theo ngày giải ngân và số tháng ưu đãi, không cho phép chỉnh sửa."
-                />
-                <div className="text-[9.5px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
-                  <span>⚡ Tự động tính:</span>
-                  <span className="font-bold text-orange-700">
-                    {debtStartDate && promoMonthsStr
-                      ? calculateMaturityDate(debtStartDate, Number(promoMonthsStr))
-                      : 'Chờ ngày giải ngân & tháng ưu đãi'}
-                  </span>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Ngày Bắt Đầu / Giải Ngân
+                  </label>
+                  <input
+                    type="date"
+                    value={debtStartDate}
+                    onChange={(e) => setDebtStartDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
                 </div>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Lãi Suất Ưu Đãi (%/năm)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={promoRateStr}
-                  onChange={(e) => setPromoRateStr(e.target.value)}
-                  placeholder="VD: 6.5"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Lãi Suất Sau Ưu Đãi (%/năm)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={normalRateStr}
-                  onChange={(e) => setNormalRateStr(e.target.value)}
-                  placeholder="VD: 10.5"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                />
               </div>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-            {debtCat !== 'type4' && (
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Ngày Bắt Đầu / Giải Ngân
-                </label>
-                <input
-                  type="date"
-                  value={debtStartDate}
-                  onChange={(e) => setDebtStartDate(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-                />
+          {/* Khi CÓ KỲ HẠN - LOẠI 1: Vay ngân hàng có lãi */}
+          {debtCat === 'type1' && !debtIsNoTerm && (
+            <div className="space-y-3">
+              {/* Hàng 1: 3 cột */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Tổng Tiền Gốc / Hạn Mức (VNĐ)
+                  </label>
+                  <input
+                    type="text"
+                    value={debtAmountStr}
+                    onChange={(e) => setDebtAmountStr(formatNumberString(e.target.value))}
+                    placeholder="0"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Thời Hạn Tổng (Tháng)
+                  </label>
+                  <input
+                    type="number"
+                    value={debtTermMonthsStr}
+                    onChange={(e) => setDebtTermMonthsStr(e.target.value)}
+                    placeholder="VD: 240 (Tháng)"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                  {debtStartDate && debtTermMonthsStr && (
+                    <div className="mt-1 text-[9.5px] text-slate-500 font-medium flex items-center gap-1">
+                      <span>🔒 Tất toán hợp đồng:</span>
+                      <span className="font-bold text-slate-800">{calculateMaturityDate(debtStartDate, Number(debtTermMonthsStr))}</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Thời Gian Ưu Đãi (Tháng)
+                  </label>
+                  <input
+                    type="number"
+                    value={promoMonthsStr}
+                    onChange={(e) => setPromoMonthsStr(e.target.value)}
+                    placeholder="VD: 24"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
               </div>
-            )}
-            <div className={debtCat !== 'type4' ? 'col-span-2' : 'col-span-3'}>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Ghi Chú Thỏa Thuận</label>
-              <input
-                type="text"
-                value={debtNote}
-                onChange={(e) => setDebtNote(e.target.value)}
-                placeholder="VD: Điều kiện tất toán sớm, số hợp đồng vay..."
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white"
-              />
+
+              {/* Hàng 2: 3 cột */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Chu Kỳ Thanh Toán</label>
+                  <select
+                    value={debtFreq}
+                    onChange={(e) => setDebtFreq(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="monthly">Hàng tháng (Monthly)</option>
+                    <option value="quarterly">Hàng quý (Quarterly)</option>
+                    <option value="biannual">6 tháng / Nửa năm</option>
+                    <option value="annual">Hàng năm (Annual)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Ngày Đến Hạn (1-31)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={debtDayStr}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      if (!raw) {
+                        setDebtDayStr('');
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (n > 31) setDebtDayStr('31');
+                      else setDebtDayStr(String(n));
+                    }}
+                    placeholder="VD: 20"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Ngày Bắt Đầu / Giải Ngân
+                  </label>
+                  <input
+                    type="date"
+                    value={debtStartDate}
+                    onChange={(e) => setDebtStartDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+              </div>
+
+              {/* Hàng 3: Khối lãi suất (3 cột) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-orange-800 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <span>Mốc Hết Ưu Đãi</span>
+                      <span className="text-[9px] px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded font-bold">🔒 Tự động</span>
+                    </span>
+                    <span className="text-[10px] text-amber-600 font-normal">
+                      (Khóa không sửa)
+                    </span>
+                  </label>
+                  <input
+                    type="date"
+                    readOnly={true}
+                    value={
+                      debtStartDate && promoMonthsStr
+                        ? calculateMaturityDateISO(debtStartDate, Number(promoMonthsStr))
+                        : (debtPromoEndDate || '')
+                    }
+                    className="w-full bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-xl p-2.5 text-xs cursor-not-allowed select-none outline-none shadow-2xs"
+                    title="Mốc hết hạn ưu đãi được tự động tính theo ngày giải ngân và số tháng ưu đãi."
+                  />
+                  <div className="text-[9.5px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
+                    <span>⚡ Tự động tính:</span>
+                    <span className="font-bold text-orange-700">
+                      {debtStartDate && promoMonthsStr
+                        ? calculateMaturityDate(debtStartDate, Number(promoMonthsStr))
+                        : 'Chờ ngày giải ngân & tháng ưu đãi'}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Lãi Suất Ưu Đãi (%/năm)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={promoRateStr}
+                    onChange={(e) => setPromoRateStr(e.target.value)}
+                    placeholder="VD: 6.5"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Lãi Suất Sau Ưu Đãi (%/năm)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={normalRateStr}
+                    onChange={(e) => setNormalRateStr(e.target.value)}
+                    placeholder="VD: 10.5"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+              </div>
             </div>
+          )}
+
+          {/* LOẠI 4 & 5: Chi phí định kỳ & Chi phí sinh hoạt */}
+          {(debtCat === 'type3' || debtCat === 'type4') && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Số Tiền Chi Trả Mỗi Kỳ (VNĐ)
+                  </label>
+                  <input
+                    type="text"
+                    value={periodicAmountStr}
+                    onChange={(e) => setPeriodicAmountStr(formatNumberString(e.target.value))}
+                    placeholder="0"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-rose-600 outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Chu Kỳ Thanh Toán</label>
+                  <select
+                    value={debtFreq}
+                    onChange={(e) => setDebtFreq(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="monthly">Hàng tháng (Monthly)</option>
+                    <option value="quarterly">Hàng quý (Quarterly)</option>
+                    <option value="biannual">6 tháng / Nửa năm</option>
+                    <option value="annual">Hàng năm (Annual)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Ngày Đến Hạn (1-31)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={debtDayStr}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      if (!raw) {
+                        setDebtDayStr('');
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (n > 31) setDebtDayStr('31');
+                      else setDebtDayStr(String(n));
+                    }}
+                    placeholder="VD: 20"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+              </div>
+              {debtCat === 'type3' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Ngày Bắt Đầu Áp Dụng
+                  </label>
+                  <input
+                    type="date"
+                    value={debtStartDate}
+                    onChange={(e) => setDebtStartDate(e.target.value)}
+                    className="w-full max-w-xs bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 3. Ghi Chú Thỏa Thuận - Full Width */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 mb-1">Ghi Chú Thỏa Thuận</label>
+            <input
+              type="text"
+              value={debtNote}
+              onChange={(e) => setDebtNote(e.target.value)}
+              placeholder="VD: Khi nào có thì trả, số hợp đồng vay, điều kiện tất toán trước hạn..."
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold outline-none focus:bg-white focus:border-rose-500"
+            />
           </div>
 
           <div className="flex items-center space-x-3 pt-2">

@@ -181,25 +181,37 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
       updatedAt: new Date().toLocaleDateString('vi-VN'),
     }));
 
-    const debtsToImport: (Debt | Omit<Debt, 'id'>)[] = parsedData.debts.map((item) => ({
-      ...(item.id ? { id: item.id } : {}),
-      category: item.category,
-      name: item.name,
-      frequency: item.frequency || 'monthly',
-      startDate: item.startDate,
-      amount: item.amount,
-      paidPrincipal: item.paidPrincipal,
-      termMonths: item.termMonths,
-      promoRate: item.promoRate,
-      normalRate: item.normalRate,
-      promoMonths: item.promoMonths,
-      promoEndDate: item.promoEndDate,
-      monthlyBefore: item.monthlyBefore,
-      monthlyAfter: item.monthlyAfter,
-      day: item.day || 1,
-      status: item.status,
-      note: item.note,
-    }));
+    const debtsToImport: (Debt | Omit<Debt, 'id'>)[] = parsedData.debts.map((item) => {
+      const isActuallyNoTerm = !!(
+        item.isNoTerm ||
+        item.category === 'type_free' ||
+        item.frequency === 'flexible' ||
+        (item.note && (item.note.toLowerCase().includes('khi nào có') || item.note.toLowerCase().includes('không kỳ hạn')))
+      );
+
+      return {
+        ...(item.id ? { id: item.id } : {}),
+        category: item.category,
+        name: item.name,
+        frequency: isActuallyNoTerm ? 'flexible' : (item.frequency || 'monthly'),
+        startDate: item.startDate,
+        amount: item.amount,
+        paidPrincipal: item.paidPrincipal || 0,
+        termMonths: isActuallyNoTerm ? undefined : item.termMonths,
+        installmentAmount: isActuallyNoTerm ? undefined : (item.installmentAmount || (item.category === 'type2' && item.monthlyBefore > 0 ? item.monthlyBefore : undefined)),
+        periodicAmount: isActuallyNoTerm ? undefined : (item.periodicAmount || ((item.category === 'type3' || item.category === 'type4') ? (item.monthlyBefore || item.amount) : undefined)),
+        promoRate: item.promoRate,
+        normalRate: item.normalRate,
+        promoMonths: item.promoMonths,
+        promoEndDate: item.promoEndDate,
+        monthlyBefore: isActuallyNoTerm ? 0 : item.monthlyBefore,
+        monthlyAfter: isActuallyNoTerm ? 0 : item.monthlyAfter,
+        day: isActuallyNoTerm ? undefined : (item.day !== undefined && item.day !== null ? item.day : 20),
+        status: item.status || 'Chưa tất toán',
+        note: item.note,
+        isNoTerm: isActuallyNoTerm ? true : undefined,
+      };
+    });
 
     const goalsToImport: (Goal | Omit<Goal, 'id'>)[] = parsedData.goals.map((item) => ({
       ...(item.id ? { id: item.id } : {}),
@@ -620,7 +632,11 @@ export const SmartExcelModal: React.FC<SmartExcelModalProps> = ({
                               {item.monthlyBefore > 0 && (
                                 <span>Trả/tháng: <strong className="text-rose-700">{item.monthlyBefore.toLocaleString('vi-VN')} đ</strong></span>
                               )}
-                              <span>Mùng {item.day || 1}</span>
+                              {item.isNoTerm ? (
+                                <span className="text-purple-700 font-semibold">✨ Không kỳ hạn</span>
+                              ) : (
+                                <span>Mùng {item.day || 20}</span>
+                              )}
                             </div>
                           </div>
 

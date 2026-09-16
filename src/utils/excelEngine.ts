@@ -49,6 +49,8 @@ export interface ParsedDebtItem {
   promoEndDate?: string;
   monthlyBefore: number;
   monthlyAfter: number;
+  installmentAmount?: number;
+  periodicAmount?: number;
   day?: number;
   status: 'Chưa tất toán' | 'Đã tất toán';
   note?: string;
@@ -1126,7 +1128,7 @@ export const exportFullDatabaseToExcel = async (db: DatabaseState, accountName?:
       item.promoEndDate ? formatDateVN(item.promoEndDate) : '',
       item.normalRate ? item.normalRate / 100 : 0,
       isNoTerm ? 0 : item.monthlyAfter || item.monthlyBefore || 0,
-      isNoTerm ? '' : item.day || 1,
+      isNoTerm ? '' : (item.day !== undefined && item.day !== null ? item.day : 20),
       item.status || 'Chưa tất toán',
       item.note || '',
     ]);
@@ -1626,7 +1628,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
     const nRate = parseRateValue(colNormalRate);
     const pMonths = parseInt(String(colPromoMonths || 0), 10) || undefined;
     // Đã không có kỳ hạn thì không có ngày đến hạn (day = undefined)
-    const dayNum = isNoTerm ? undefined : (parseInt(String(colDay || 1), 10) || 1);
+    const dayNum = isNoTerm ? undefined : (colDay ? parseInt(String(colDay), 10) || 20 : 20);
     const statusVal: 'Chưa tất toán' | 'Đã tất toán' =
       String(colStatus).toLowerCase().includes('đã') ? 'Đã tất toán' : 'Chưa tất toán';
 
@@ -1653,6 +1655,12 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       }
     }
 
+    // Đối với chi phí định kỳ/sinh hoạt, nếu amountNum = 0 nhưng finalMonthlyBefore > 0
+    let finalAmount = amountNum;
+    if ((category === 'type3' || category === 'type4') && finalAmount <= 0 && finalMonthlyBefore > 0) {
+      finalAmount = finalMonthlyBefore;
+    }
+
     debts.push({
       id: parsedId,
       category,
@@ -1660,7 +1668,7 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       name: cleanName || `Khoản nợ ${debts.length + 1}`,
       frequency: freq,
       startDate: startDateVal || undefined,
-      amount: amountNum,
+      amount: finalAmount,
       paidPrincipal: paidNum,
       termMonths: termNum,
       promoRate: pRate > 0 ? pRate : undefined,
@@ -1669,6 +1677,8 @@ export const parseRawRowsToDebtsAndIncome = (rawRows: any[][]): { debts: ParsedD
       promoEndDate: promoEndDateVal || undefined,
       monthlyBefore: finalMonthlyBefore,
       monthlyAfter: finalMonthlyAfter,
+      installmentAmount: category === 'type2' && !isNoTerm ? (finalMonthlyBefore > 0 ? finalMonthlyBefore : (termNum && termNum > 0 ? Math.round(finalAmount / termNum) : undefined)) : undefined,
+      periodicAmount: (category === 'type3' || category === 'type4') ? (finalMonthlyBefore > 0 ? finalMonthlyBefore : finalAmount) : undefined,
       day: dayNum,
       status: statusVal,
       note: colNote.trim() || undefined,
